@@ -1,0 +1,7 @@
+# Local secrets and generated clutter
+.env
+.env.*
+!.env.example
+*.log
+Thumbs.db
+.DS_Store
