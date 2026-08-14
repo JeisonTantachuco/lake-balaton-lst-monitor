@@ -177,6 +177,17 @@ This is the authoritative, versioned register for scientific, methodological, go
 - **Affected files or components:** Project planning, research, implementation, validation, documentation, presentation.
 - **Superseded decision:** None.
 
+### SCOPE-004 — Academic approval of broad internship topic
+
+- **Date:** 2026-08-12
+- **Status:** approved
+- **Decision:** Academic supervisor Dr. Pál Márton approved the broad internship topic as suitable. The approved concept is a GEE application extending the existing Lake Balaton application with thermal-status or anomaly interpretation, daily observations, and basin-level monthly summaries. This academic approval does not approve all detailed methodological choices represented by the 13 proposed decisions in this register. The scope may be refined during the proposed consultation at the beginning of September 2026.
+- **Rationale:** The supervisor confirmed that the proposed topic is suitable for completing the internship while leaving detailed methodology and possible scope refinement for subsequent consultation and approval.
+- **Evidence or source:** User-provided correspondence evidence: proposal sent on 28 July 2026; supervisor response dated 12 August 2026 stating, “The topic looks promising! It is suitable for completing the internship.”
+- **Approval provenance:** Academic suitability approval provided by Dr. Pál Márton on 12 August 2026 and supplied by the user for inclusion in the project record. This is distinct from project approval of detailed methodological choices.
+- **Affected files or components:** Broad internship scope, project documentation, consultation planning, and the conceptual requirements for thermal-status or anomaly interpretation, daily observations, and basin-level monthly summaries. It does not authorize implementation of unresolved methodological choices.
+- **Superseded decision:** None.
+
 ## Proposed decisions requiring explicit user approval
 
 The following entries are unresolved. Their presence here does not authorize implementation.

@@ -4,6 +4,10 @@
 
 This document preserves the project scope inherited from the attached “Thesis Methodology Guidance” conversation and the governance approved on 13 August 2026. It is the shared context for future Codex tasks.
 
+The internship proposal was sent to academic supervisor Dr. Pál Márton on 28 July 2026. On 12 August 2026, he responded: “The topic looks promising! It is suitable for completing the internship.” This constitutes academic approval of the broad internship topic as suitable. The approved concept is a GEE application extending the existing Lake Balaton application with thermal-status or anomaly interpretation, daily observations, and basin-level monthly summaries.
+
+The supervisor’s approval does not approve all detailed methodological choices in the 13 open decisions below. Those decisions remain unresolved and subject to the project’s explicit user-approval process. The scope may be refined during the proposed consultation at the beginning of September 2026.
+
 Established decisions below constrain implementation. Items under **Open decisions** are not approved. Any material change to an established decision, or resolution of an open scientific decision, requires explicit user approval through the main coordinator.
 
 No GEE application has been implemented in this repository yet.
