@@ -188,6 +188,29 @@ This is the authoritative, versioned register for scientific, methodological, go
 - **Affected files or components:** Broad internship scope, project documentation, consultation planning, and the conceptual requirements for thermal-status or anomaly interpretation, daily observations, and basin-level monthly summaries. It does not authorize implementation of unresolved methodological choices.
 - **Superseded decision:** None.
 
+### PROTO-001 — First MODIS preprocessing diagnostic prototype specification
+
+- **Date:** 2026-08-16
+- **Status:** approved
+- **Decision:** Approve `docs/FIRST_PROTOTYPE_SPECIFICATION.md` as the controlling task specification for the first implementation prototype. The prototype is non-UI, non-deployed, creates no permanent Earth Engine assets or exports, and covers UTC product dates from 1 July 2024 inclusive through 15 July 2024 exclusive. It produces one diagnostic row for each date and each of four separate streams: Terra daytime and nighttime from `MODIS/061/MOD11A1`, and Aqua daytime and nighttime from `MODIS/061/MYD11A1`.
+
+  The prototype uses the corresponding LST, QC, view-time, view-angle, and clear-coverage bands; applies documented scale factors; decodes all QC components; calculates QA diagnostics before common-band masking; preserves UTC product date and local-solar view-time statistics; and uses one uniform typed schema for all 56 expected rows.
+
+  The strict prototype acceptance rule requires unmasked LST, QC, view-time, and view-angle values within documented raw ranges and requires mandatory QA, data quality, emissivity error, and LST error codes all to equal zero. `Clear_*_cov` remains an uninterpreted unitless diagnostic and does not gate acceptance.
+
+  The provisional geometry is geodesic `ee.Geometry.Point([17.7498611, 46.8516944]).buffer(250)` with ID `szemesi_station_250m_v0`, normalized from a published Szemesi-basin sampling-station coordinate. It is a presumed-open-water engineering fixture only, not an authoritative lake/basin geometry or a 250 m thermal measurement.
+
+  Eligible ROI area is the fixed pixel-area-weighted geometry intersection in the exact native MODIS projection. `accepted_roi_fraction` is the accepted-area ratio. Provisional eligible-water, valid-water, and coverage aliases may be emitted only with the explicit semantic warning that they are geometry-based engineering proxies and not application-grade water coverage.
+
+  The prototype must preserve accepted, produced-but-rejected, cloud, non-cloud no-retrieval, missing-QC, no-source-image, mixed-failure, and duplicate-source diagnostics. Duplicate source images are a validation failure and must not be mosaicked. Missing observations remain explicit typed-null rows and are never interpolated.
+
+  Climatology, anomalies, percentiles, thermal-status labels, monthly aggregation, authoritative water/basin geometries, scientific coverage thresholds, permanent assets, Landsat, ERA5-Land, deployment, and UI remain outside the prototype. This decision does not resolve any of the 13 application-level proposed decisions.
+- **Rationale:** A small, auditable diagnostic prototype is needed to validate collection access, stream parameterization, scaling, QA decoding, mask behavior, timing metadata, area accounting, missingness, state representation, and schema consistency before broader scientific methodology or application implementation is approved.
+- **Evidence or source:** `PROJECT_CONTEXT.md`; `DECISIONS.md`; Phase 1 scientific and technical audit; official Earth Engine MOD11A1.061 and MYD11A1.061 documentation; MOD11 Collection 6.1 User Guide; Blix et al. (2018) station table; independent scientific validation dated 2026-08-16; `docs/FIRST_PROTOTYPE_SPECIFICATION.md`.
+- **Approval provenance:** Explicitly approved by the user through the main coordinator on 2026-08-16.
+- **Affected files or components:** `docs/FIRST_PROTOTYPE_SPECIFICATION.md` and the first prototype implementation and tests explicitly assigned by the coordinator. No UI, deployment, Earth Engine assets, exports, climatology, anomaly, percentile, classification, monthly, Landsat, or ERA5-Land implementation is authorized.
+- **Superseded decision:** None.
+
 ## Proposed decisions requiring explicit user approval
 
 The following entries are unresolved. Their presence here does not authorize implementation.
