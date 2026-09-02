@@ -366,6 +366,28 @@ This is the authoritative, versioned register for scientific, methodological, go
 - **Affected files or components:** `DECISIONS.md`, `requirements-geometry-audit.txt`, `docs/NIGHTTIME_QA_CANDIDATE_COMPARISON_SPECIFICATION.md`, `docs/NIGHTTIME_QA_CANDIDATE_COMPARISON_EXECUTION_GUIDE.md`, `docs/NIGHTTIME_QA_CANDIDATE_COMPARISON_REPORT.md`, `docs/NIGHTTIME_QA_CANDIDATE_COMPARISON_INDEPENDENT_REVIEW.md`, `tools/run_nighttime_qa_candidate_comparison_ee.py`, and `tools/supervise_nighttime_qa_candidate_comparison.py`. No existing completed audit or `AUDIT-011` implementation/result file is modified.
 - **Superseded decision:** None. This diagnostic supplements but does not supersede `AUDIT-001` through `AUDIT-011`, the strict prototype engineering rule, or any unresolved QA decision.
 
+### AUDIT-013 — Historical observation-availability probe
+
+- **Date:** 2026-09-02
+- **Status:** **complete (2026-09).** User confirmed the specification ("looks right execute and give me a brief result"). Runner `tools/run_historical_observation_availability_ee.py` SHA-256 `514242b69646c0e981cba59a00821de3705fb0388ea08650b4fb14665de45e75`; supervisor `tools/supervise_historical_observation_availability.py`. Both `--self-test` suites pass. The supervised run finished with exit 0, `AUDIT013_SUPERVISOR_COMPLETE` / `terminal_revalidated: true`, 192 cells, `cells_sha256 97cdf82e…`. **Result:** at a ± 5-day window every stream × month has 20/20 historical years covered (one cell 19/20) with 110–195 total daily observations behind every percentile — the historical sample is not thin; clouds thin the per-day pixel coverage, not the number of days. Full result in `docs/HISTORICAL_OBSERVATION_AVAILABILITY_REPORT.md`.
+- **Decision:** Authorize a bounded, read-only, coordinate-free counting diagnostic that measures, from the real MODIS archive over 2003–2022, how many usable historical observations sit behind a percentile — for each of the four streams, the 15th of each month, and window half-widths of 5, 7, 10, and 15 days. It reports observation *counts* only (years with any accepted observation, total accepted daily observations, per-year counts, median accepted pixel count on positive days) using the approved lake-wide 0 m geometry and the approved `QA-002` candidate-C acceptance rule (reusing the byte-pinned `AUDIT-012` mask code). It computes no anomaly, climatology, percentile, or classification, selects no `METH-*` value, changes no completed audit or approved decision, and creates no Earth Engine asset, export, task, UI, or deployment. It never reads a temperature or a coordinate. Same guardrails as `AUDIT-011` / `AUDIT-012`: coordinate-free runner + Windows Job Object supervisor, `480.000`-second per-request cutoff, one attempt / no automatic retry, 165-minute session ceiling, byte-pinned runner. No NASA CMR / Earthdata / HDF access.
+- **Rationale:** `METH-001` (seasonal window width) and `METH-003` (minimum-sample thresholds) cannot be fixed responsibly without knowing the real historical sample size, which `AUDIT-011` / `AUDIT-012` showed is far below the ~220 nominal at night. Measuring it directly is cheaper and more honest than guessing.
+- **Evidence or source:** `docs/HISTORICAL_OBSERVATION_AVAILABILITY_SPECIFICATION.md`; `docs/METH_001_006_PROPOSAL.md` §2.2, §4; `AUDIT-011` and `AUDIT-012` evidence; approved `QA-002` and `SPACE-001`.
+- **Approval provenance:** User asked to proceed with the check (2026-09, "lets go with the small check on how much history we actually have"); the specification is presented for confirmation before code is written.
+- **Affected files or components:** `DECISIONS.md`, `docs/HISTORICAL_OBSERVATION_AVAILABILITY_SPECIFICATION.md`, a new coordinate-free runner and Windows supervisor under `tools/`, and (on completion) an availability report. No existing completed audit, prototype, or `AUDIT-011` / `AUDIT-012` file is modified.
+- **Superseded decision:** None. Supplements the `METH-*` decision process; supersedes nothing.
+
+### PHASE-3 — Anomaly engine implementation
+
+- **Date:** 2026-09-02
+- **Status:** approved and implemented; the one-time climatology build is queued (waiting on a transient EEA provenance-server outage). User: "let's build phase 3".
+- **Decision:** Implement the Phase 3 anomaly engine per `docs/PHASE_3_ANOMALY_ENGINE_SPECIFICATION.md`, applying the approved `SPACE-001` / `QA-002` / `METH-001`…`006` decisions with no new scientific choice. Runner `tools/run_anomaly_engine_ee.py` SHA-256 `73bd021c76d46ae42180161580421321611efaf7d4246029ed047965fbf9a9f7` (`anomaly_engine_python_api_v1_lake_wide_candidate_c`); supervisor `tools/supervise_anomaly_engine.py` (`anomaly_engine_windows_supervisor_v1`). Produces four coordinate-free local artefacts under `local_run_state/phase3/` (git-ignored): the historical daily lake values (2003–2022), the ± 5-day day-of-year climatology baseline (`METH-001`; median + mean + sorted list + `median_minus_mean_c`, `METH-002`), the daily anomaly records (`METH-003`/`004` percentile + label + `QA-002` confidence tier), and the stream-specific monthly summaries (`METH-005`). It creates no Earth Engine asset, export, task, or deployment — that is `ARCH-001`. It also caches a **hash-pinned local copy** of the `AUDIT-003` verified geometry (raw SHA-256 `5d5f9c8e…`, canonical SHA-256 `394a9296…`, 11,012 tuples) so a production run does not depend on the sometimes-unavailable EEA provenance servers; the cache is trusted only when its recorded identity matches those pins exactly.
+- **Rationale:** Phase 3 is the core deliverable (`SCOPE-003`); the decisions it needs are all approved. Same fail-closed / coordinate-free / byte-pinned / supervised discipline as `AUDIT-011`…`AUDIT-013`.
+- **Evidence or source:** `docs/PHASE_3_ANOMALY_ENGINE_SPECIFICATION.md`; approved `SPACE-001`, `QA-002`, `METH-001`…`006`, `SCOPE-003`; `AUDIT-013`; `AUDIT-003` (geometry identity).
+- **Approval provenance:** User approved via the main coordinator (2026-09): "first, I would like to apply two, median and average … let's build phase 3".
+- **Affected files or components:** `tools/run_anomaly_engine_ee.py`, `tools/supervise_anomaly_engine.py`, `local_run_state/phase3/` (already git-ignored via the existing `/local_run_state/` rule), `docs/PHASE_3_ANOMALY_ENGINE_SPECIFICATION.md`. No completed audit, prototype, or `AUDIT-011`…`013` file is modified.
+- **Superseded decision:** None.
+
 ## Proposed decisions requiring explicit user approval
 
 The following entries are unresolved. Their presence here does not authorize implementation.
@@ -373,8 +395,9 @@ The following entries are unresolved. Their presence here does not authorize imp
 ### METH-001 — Historical seasonal window
 
 - **Date:** 2026-08-13
-- **Status:** proposed
+- **Status:** **approved (2026-09)** on the basis of `docs/METH_001_006_PROPOSAL.md` and the completed `AUDIT-013` sample-availability probe. Approval provenance: the user, after reviewing the recommendations and the `AUDIT-013` result and asking clarifying questions, confirmed "ok, everything looks good" and "ok, I understand let's proceed with the phases".
 - **Decision:** Decide whether to retain the inherited candidate of ±5 calendar days or use another window or smoother.
+- **Proposal (2026-09-02) — reinforced by `AUDIT-013` (2026-09):** day-of-year window of **± 5 days** across 2003–2022, per stream, on the whole-lake unit, for **all four streams**. `AUDIT-013` measured the real historical sample: at ± 5 days every stream × month has 20/20 historical years covered (one cell 19/20) and 110–195 daily observations behind every percentile, so the nighttime-widening contingency is **not triggered** and is dropped. Smoothed seasonal climatology is a future improvement, not the MVP (the raw ± 5-day window has ample data). 29 February merges with 28 February. Awaiting the final `METH-001`…`006` approval.
 - **Rationale:** A seasonal matching rule is required to construct historical comparisons.
 - **Evidence or source:** `PROJECT_CONTEXT.md`, open decision 1.
 - **Approval provenance:** Not approved; carried forward as an open proposal from the attached conversation.
@@ -384,8 +407,9 @@ The following entries are unresolved. Their presence here does not authorize imp
 ### METH-002 — Historical reference statistic
 
 - **Date:** 2026-08-13
-- **Status:** proposed
+- **Status:** **approved (2026-09), revised at the user's request to report both statistics.** Approval provenance: the user reviewed the recommendations and the `AUDIT-013` result, then asked "why should we choose one and not the other? ... let's apply two, median and average" — so both are computed and reported.
 - **Decision:** Select the historical reference statistic: mean, median, smoothed seasonal climatology, or another estimator.
+- **Approved (2026-09):** compute and report **both** the historical **median** and the historical **mean** of the matched ± 5-day, 2003–2022, same-stream sample, with the historical standard deviation. The daily record shows `anomaly_vs_median_c` and `anomaly_vs_mean_c`; **the median-based anomaly is the headline** (robust to the skew and the occasional bad value of small LST samples, standard in modern climate-anomaly / marine-heatwave work), with the mean-based anomaly shown alongside. The climatology baseline records `median_minus_mean_c` per stream × day-of-year as a diagnostic — where the two diverge materially, that day-of-year's distribution is skewed and the note is surfaced. The percentile / "unusually warm" judgement uses the full empirical distribution, not the mean or median (`METH-003` / `METH-004`). A smoothed seasonal climatology remains a documented future improvement.
 - **Rationale:** An explicit estimator is required before anomalies can be implemented.
 - **Evidence or source:** `PROJECT_CONTEXT.md`, open decision 2.
 - **Approval provenance:** Not approved.
@@ -395,8 +419,9 @@ The following entries are unresolved. Their presence here does not authorize imp
 ### METH-003 — Percentile estimator and sample requirement
 
 - **Date:** 2026-08-13
-- **Status:** proposed
+- **Status:** **approved (2026-09)** on the basis of `docs/METH_001_006_PROPOSAL.md` and the completed `AUDIT-013` sample-availability probe. Approval provenance: the user, after reviewing the recommendations and the `AUDIT-013` result and asking clarifying questions, confirmed "ok, everything looks good" and "ok, I understand let's proceed with the phases".
 - **Decision:** Select the percentile estimator and minimum historical sample count per spatial unit and observation stream.
+- **Proposal (2026-09-02) — confirmed by `AUDIT-013` (2026-09):** estimator = **Type 7** (Hyndman–Fan definition 7, linear interpolation — already used in `AUDIT-010`/`AUDIT-012`). Minimum sample `n` (valid historical observations in the matched ± 5-day window, same stream, whole-lake unit): `n ≥ 20` → full result with percentile and label; `10 ≤ n < 20` → percentile + label with a "limited historical sample" flag; `n < 10` → °C anomaly only, "insufficient history for a percentile"; `n = 0` → observation shown with value and coverage only. The monitoring observation is never added to its own historical sample. `AUDIT-013` shows the real pools are 110–195, so these thresholds are retained as a guardrail (for an unusual gap, or a future basin unit) but essentially never bind on the lake-wide product — every percentile is computed at `n ≥ 20`. The operative reliability signal is the per-day spatial coverage, which the approved `QA-002` confidence tier already carries.
 - **Rationale:** Percentiles and their reliability depend on estimator and sample sufficiency.
 - **Evidence or source:** `PROJECT_CONTEXT.md`, open decision 3.
 - **Approval provenance:** Not approved.
@@ -406,8 +431,9 @@ The following entries are unresolved. Their presence here does not authorize imp
 ### METH-004 — Classification thresholds and labels
 
 - **Date:** 2026-08-13
-- **Status:** proposed
+- **Status:** **approved (2026-09)** on the basis of `docs/METH_001_006_PROPOSAL.md` and the completed `AUDIT-013` sample-availability probe. Approval provenance: the user, after reviewing the recommendations and the `AUDIT-013` result and asking clarifying questions, confirmed "ok, everything looks good" and "ok, I understand let's proceed with the phases".
 - **Decision:** Select classification thresholds and exact labels. The inherited 90th/95th-percentile scheme remains only a proposal.
+- **Proposal (2026-09-02, not approved):** percentile-based, applied only when `METH-003` reports a percentile — `< 10th` = `below normal`; `10th–90th` = `within normal range`; `90th–95th` = `warm`; `95th–99th` = `unusually warm`; `≥ 99th` = `extreme warm observation`. When `n < 10` the label reads `historical context unavailable` (°C anomaly only). No "heatwave"/event language (`TERM-001`).
 - **Rationale:** Thresholds and labels materially determine reported thermal status.
 - **Evidence or source:** `PROJECT_CONTEXT.md`, open decision 4.
 - **Approval provenance:** Not approved.
@@ -416,32 +442,46 @@ The following entries are unresolved. Their presence here does not authorize imp
 
 ### SPACE-001 — Spatial units and authoritative geometries
 
-- **Date:** 2026-08-13
-- **Status:** proposed
-- **Decision:** Select authoritative geometries and spatial units, including four basins, a lake-wide boundary, and whether littoral/pelagic zones belong in the six-week minimum scope.
-- **Rationale:** Spatial comparisons and coverage metrics require approved boundaries.
-- **Evidence or source:** `PROJECT_CONTEXT.md`, open decision 5.
-- **Approval provenance:** Not approved.
-- **Affected files or components:** Geometry assets, masks, summaries, maps, scope.
-- **Superseded decision:** None.
+- **Date:** 2026-08-13 (lake-wide geometry approved 2026-09, after the supervisor consultation)
+- **Status:** approved for the lake-wide boundary; basin subdivision and littoral/pelagic zones deferred to `SCOPE-003`.
+- **Decision:** The authoritative spatial unit for the six-week minimum viable product is the **whole lake as a single polygon**, using the verified unrounded WISE WFD v1.9 `SurfaceWaterBody_polygon` for `thematicIdIdentifier = HUAIH049`, reporting year 2022 — the exact geometry already verified and used in `AUDIT-001` … `AUDIT-012` (raw SHA-256 `5d5f9c8edfced710fcc8657a6aceb398f14cd815d1c5e41a7df9f00601f312d8`, canonical SHA-256 `394a929617bb975d2f3e3aa627abe26dbcc98f42fa48fe038757b3e734c35020`, one part, no holes, 11,012 tuples). Source coordinates remain transient and are never persisted in the repository, an Earth Engine asset, or an export, per `AUDIT-003`/`AUDIT-006`. The four named basins (Keszthely, Szigliget, Szemes, Siófok) and any littoral/pelagic split are **not** in the minimum scope: no authoritative Hungarian basin geometry is available, and the academic supervisor could not point to one; adding basins would require either an external geometry source or an approved derivation (e.g. splitting the polygon at the recognised narrows), which is treated as an optional extension under `SCOPE-003`.
+- **Rationale:** Spatial comparisons and coverage metrics require an approved boundary. The whole-lake WISE polygon is the only authoritative geometry available, is already fully verified, and is sufficient for a lake-wide anomaly product. Basin-level output was always conditional on a usable basin geometry, which does not exist.
+- **Evidence or source:** `PROJECT_CONTEXT.md` open decision 5; `AUDIT-001` … `AUDIT-012` and their reports; `docs/WHOLE_LAKE_BOUNDARY_SHORELINE_AUDIT_REPORT.md`; `docs/WHOLE_LAKE_GEOMETRY_REPAIR_SENSITIVITY_REPORT.md`; the 2026-09 supervisor consultation, at which the supervisor gave no specific methodological recommendation and confirmed no authoritative Hungarian boundary was available.
+- **Shoreline treatment (approved 2026-09):** the analysis uses the **full polygon with no inward erosion (0 m)** for the six-week MVP. `AUDIT-001` … `AUDIT-012` tested 0 m, 463.31 m, 500 m, and 926.63 m; `AUDIT-012` showed inward erosion lowers the accepted nighttime coverage fraction by ~0.9 pp (463 m) to ~1.5 pp (927 m). 0 m is chosen because (a) nighttime coverage is already very low and cannot afford further loss, (b) anomaly detection is relative — the same near-shore mixed pixels are in both the 2003–2022 baseline and the monitoring observation, so land-mixing bias largely cancels in the anomaly, and (c) Lake Balaton is narrow, so aggressive erosion removes whole cross-sections. The MODIS ~1 km mixed-pixel limitation is stated in the technical report; the choice is revisited if `VAL-001` validation shows a near-shore artifact (especially a summer daytime warm bias).
+- **Approval provenance:** Approved by the user through the main coordinator after the 2026-09 supervisor consultation: "there is no hungarian boundary that we can point, so from now let's use the whole lake that we have" (lake-wide geometry) and the follow-up confirmation of the coordinator's recommendations, including "use the full lake outline (0 m)".
+- **Affected files or components:** Geometry handling, masks, coverage summaries, maps, project scope, Phase 3–4 implementation.
+- **Superseded decision:** None. Does not change any completed audit.
 
 ### QA-002 — Valid-water coverage and QA thresholds
 
-- **Date:** 2026-08-13
-- **Status:** proposed — full proposal drafted 2026-09-02 (`docs/QA_002_PROPOSAL.md`); awaiting user/supervisor decision.
+- **Date:** 2026-08-13 (nighttime acceptance rule approved 2026-09, after the supervisor consultation)
+- **Status:** **approved** (2026-09, after the supervisor consultation). The per-pixel acceptance rule (day and night), the daily confidence-tier principle, and the monthly minimum are all decided; only the exact numeric confidence-tier cut-off is deferred to Phase 3–4 calibration. Full proposal: `docs/QA_002_PROPOSAL.md`.
 - **Decision:** Select the per-pixel MODIS QA acceptance rule (day and night), the minimum valid-water coverage for a confidently reported daily observation, and the minimum valid-observation count/coverage for a monthly summary.
-- **Proposal (2026-09-02, not approved):** (1) Nighttime acceptance rule = **candidate C** (`V & mandatory_qa ∈ {0,1} & data_quality == 0 & emissivity_error ≤ 1 & lst_error ≤ 1`), because `AUDIT-011` showed the prototype strict rule (`QC byte == 0`) yields 0 % final nighttime coverage on all 8 window-streams / all 56 dates, and `AUDIT-012` showed candidate A ≈ 0.5 %, candidate B = 0 %, candidate C ≈ 99 % — with 98.7 % of valid-water nighttime pixels being QC byte 65 (`M1/D0/E0/T1`, LST error ≤ 2 K). Alternatives recorded: C′ (keep `emissivity_error == 0`), or keep the strict rule and accept there is no nighttime product. (2) Daytime rule = the same structure **provisionally**, with a recommended bounded daytime QA comparison before it is fixed. (3) Daily observations are not suppressed on coverage (per `QA-001`) but carry a confidence tier from the valid-water fraction `f` (candidate cut-offs `full` ≥ 0.50, `good` ≥ 0.20, `partial` ≥ 0.05, `sparse` > 0, `none` = 0). (4) A monthly value is reported only with ≥ 3 days at `partial` or better (candidate). Mandatory transparency condition: every daily record also reports strict-rule / candidate-A / candidate-B coverage and the QC-byte histogram, so the rule stays reversible. QA-002 does not decide `METH-001…006`, `SPACE-001`, the shoreline treatment, or `DATA-005/006`.
-- **Rationale:** Acceptance thresholds determine when an observation or summary is sufficiently reliable to report; on Lake Balaton the nighttime QA rule is decisive — any rule requiring the strict LST-error tier discards essentially all nighttime data.
-- **Evidence or source:** `PROJECT_CONTEXT.md` open decision 6; `docs/QA_002_PROPOSAL.md`; `AUDIT-011` (`docs/NIGHTTIME_GATE_ATTRIBUTION_DIAGNOSTIC_REPORT.md`); `AUDIT-012` (`docs/NIGHTTIME_QA_CANDIDATE_COMPARISON_REPORT.md`); `docs/FIRST_PROTOTYPE_SPECIFICATION.md` §7–8; `QA-001`.
-- **Approval provenance:** Not approved. Proposal drafted by the coordinator for the early-September supervisor consultation (briefing section C).
+- **APPROVED (2026-09) — nighttime acceptance rule = candidate C:**
+  ```
+  accepted_night = E && Q && L && Vt && Va
+               && mandatory_qa ∈ {0, 1}
+               && data_quality == 0
+               && emissivity_error <= 1      # average emissivity error ≤ 0.02
+               && lst_error <= 1             # average LST error ≤ 2 K
+  ```
+  `AUDIT-011` showed the prototype strict rule (`QC byte == 0`) yields 0 % final nighttime coverage on all 8 window-streams / all 56 dates; `AUDIT-012` showed candidate A ≈ 0.5 %, candidate B = 0 %, candidate C ≈ 99 %, with 98.7 % of valid-water nighttime pixels being QC byte 65 (`M1/D0/E0/T1`, LST error ≤ 2 K). Requiring the strict `lst_error == 0` ("≤ 1 K") tier would leave Lake Balaton with no nighttime thermal product. **Mandatory transparency condition (binding):** every daily nighttime record also reports the coverage that the strict rule, candidate A, and candidate B would have produced, plus the QC-byte histogram over the QC-observed area; product metadata and the report state that the nighttime record rests on the "LST error ≤ 2 K" tier and that `M=0` "good quality" nighttime retrievals are effectively absent on Lake Balaton.
+- **APPROVED (2026-09) — daytime acceptance rule:** the **same candidate-C rule applied symmetrically** to `terra_day` / `aqua_day` (one rule to document; C is a superset of any stricter rule, so it never discards good-quality daytime data). Daytime has not had an A/B/C comparison; an optional bounded daytime diagnostic could later confirm whether daytime can afford a stricter rule, but it is not required for the MVP.
+- **APPROVED (2026-09) — daily confidence tier:** a daily observation is **never suppressed on coverage** (per `QA-001`); it carries a confidence flag from the accepted valid-water fraction `f`, three levels — `ok`, `low`, `none` (`f = 0`, the explicit no-valid-observation state). The exact `f` cut-off between `ok` and `low` (provisionally ~0.15) is calibrated in Phase 3–4 from the observed coverage distribution.
+- **APPROVED (2026-09) — monthly minimum:** a monthly value is reported only when the month has **≥ 3** daily observations at `low` or better, per stream, per spatial unit; otherwise "insufficient valid observations", with the valid-day count and mean coverage still shown. The aggregation arithmetic itself is `METH-005`.
+- QA-002 does not decide `METH-001…006`, the shoreline erosion treatment (recorded under `SPACE-001`: 0 m for the MVP), or `DATA-005/006`. It does not modify or relax any completed audit; the prototype's strict rule remains the documented engineering reference.
+- **Rationale:** Acceptance thresholds determine when an observation or summary is sufficiently reliable to report; on Lake Balaton the nighttime QA rule is decisive — any rule requiring the strict LST-error tier discards essentially all nighttime data. The supervisor gave no methodological recommendation at the consultation, so the rule was chosen directly from the `AUDIT-011` + `AUDIT-012` evidence.
+- **Evidence or source:** `PROJECT_CONTEXT.md` open decision 6; `docs/QA_002_PROPOSAL.md`; `AUDIT-011` (`docs/NIGHTTIME_GATE_ATTRIBUTION_DIAGNOSTIC_REPORT.md`); `AUDIT-012` (`docs/NIGHTTIME_QA_CANDIDATE_COMPARISON_REPORT.md`); `docs/FIRST_PROTOTYPE_SPECIFICATION.md` §7–8; `QA-001`; the 2026-09 supervisor consultation.
+- **Approval provenance:** Nighttime acceptance rule approved by the user through the main coordinator after the 2026-09 supervisor consultation: "for 1 C accuracy we almost don't have data, so let's use the 2 C quality". The daytime rule, the confidence-tier principle, and the monthly minimum were approved in the same exchange by the user confirming the coordinator's recommendations ("for the QA-002 I say yes").
 - **Affected files or components:** QA masks, acceptance logic, daily/monthly views, downloads, Phase 3 climatology/anomaly/percentile implementation.
 - **Superseded decision:** None. Does not supersede or relax any completed audit or the prototype strict engineering rule (which remains the documented engineering reference).
 
 ### METH-005 — Monthly aggregation and missing streams
 
 - **Date:** 2026-08-13
-- **Status:** proposed
+- **Status:** **approved (2026-09)** on the basis of `docs/METH_001_006_PROPOSAL.md` and the completed `AUDIT-013` sample-availability probe. Approval provenance: the user, after reviewing the recommendations and the `AUDIT-013` result and asking clarifying questions, confirmed "ok, everything looks good" and "ok, I understand let's proceed with the phases".
 - **Decision:** Define monthly aggregation when Terra/Aqua streams or days are missing, including whether monthly summaries remain stream-specific.
+- **Proposal (2026-09-02, not approved):** monthly summaries are **always stream-specific** (Terra/Aqua × day/night never merged). Per stream/month/whole-lake unit, computed only from daily observations that passed `QA-002` (tier `low` or better) and requiring **≥ 3** such days (the `QA-002` minimum): monthly mean temperature, monthly mean anomaly, hottest valid observation (date + value), maximum anomaly, and warm-observation count (days at ≥ 90th percentile). `< 3` qualifying days → "insufficient valid observations" with the count still shown. No zero-fill or interpolation (`QA-001`). The missing/cloud-obscured proportion is always reported.
 - **Rationale:** Monthly statistics must not silently mix streams or handle missingness inconsistently.
 - **Evidence or source:** `PROJECT_CONTEXT.md`, open decision 7.
 - **Approval provenance:** Not approved.
@@ -451,8 +491,9 @@ The following entries are unresolved. Their presence here does not authorize imp
 ### METH-006 — Standardized multi-sensor indicator
 
 - **Date:** 2026-08-13
-- **Status:** proposed
+- **Status:** **approved (2026-09)** on the basis of `docs/METH_001_006_PROPOSAL.md` and the completed `AUDIT-013` sample-availability probe. Approval provenance: the user, after reviewing the recommendations and the `AUDIT-013` result and asking clarifying questions, confirmed "ok, everything looks good" and "ok, I understand let's proceed with the phases".
 - **Decision:** Decide whether to create a standardized multi-sensor indicator. Direct averaging of the four observation streams remains excluded.
+- **Proposal (2026-09-02, not approved):** **no** combined multi-sensor index for the MVP — the four streams sample the lake at different times and conditions. Instead the product shows the four streams side by side for the same date/month, each with its own anomaly, percentile, and label. A per-stream standardized anomaly (robust z-score), reported per stream and compared but never merged into one temperature, is a documented optional extension only.
 - **Rationale:** Any combined indicator needs a defensible method that preserves stream differences.
 - **Evidence or source:** `PROJECT_CONTEXT.md`, established stream separation and open decision 8.
 - **Approval provenance:** Not approved.
@@ -505,11 +546,12 @@ The following entries are unresolved. Their presence here does not authorize imp
 
 ### SCOPE-003 — Six-week minimum viable outputs
 
-- **Date:** 2026-08-13
-- **Status:** proposed
+- **Date:** 2026-08-13 (approved 2026-09)
+- **Status:** **approved (2026-09).** Full proposal in `docs/SCOPE_003_PROPOSAL.md`. The user confirmed: "Both are extensions, let's try to finish first the core proposal, and then we can try to introduce ERA5-Land and then Landsat" — so ERA5-Land and Landsat are both **extensions**, ERA5-Land attempted first, only after the MVP core is delivered.
 - **Decision:** Select minimum viable outputs for the six-week delivery period and distinguish them from optional extensions.
-- **Rationale:** Delivery scope must match the available time without silently dropping required outputs or adopting optional work.
-- **Evidence or source:** `PROJECT_CONTEXT.md`, open decision 13.
-- **Approval provenance:** Not approved.
-- **Affected files or components:** Project plan, implementation scope, validation, documentation, presentation.
+- **Proposal (2026-09-02, not approved):** **MVP core** = the MODIS anomaly product (four streams, lake-wide, daily observed LST + coverage/confidence flag + historical median reference + °C anomaly + Type-7 percentile + classification label, per the approved `QA-002` / `METH-*`), a daily observation view (numbers + accepted-pixel map + explicit no-observation state), a monthly summary view (per stream, ≥ 3 valid days), a deployed GEE application, and the written deliverables (documented code, technical report incl. the `AUDIT-013` summer-nighttime partial-coverage caveat, user guidance, presentation), with MVP-level validation (`VAL-001`: cross-stream consistency, Li et al. 2024 comparison, literature range, reproducibility; in-situ if obtained). **Extensions, only if the core is on track by ~week 4:** ERA5-Land context panel (`DATA-006`), Landsat hotspot inspection (`DATA-005`), a per-pixel anomaly map, a coarse west/centre/east daytime zonal split. **Documented future work:** formal four-basin products, littoral/pelagic zones, a Hobday-style consecutive-exceedance detector, any multi-sensor index beyond side-by-side display.
+- **Rationale:** Delivery scope must match ~3 remaining weeks. The MODIS anomaly product plus the app plus the writing is the internship's core value and a realistic load; Landsat and ERA5-Land are each a fresh preprocessing pipeline.
+- **Evidence or source:** `PROJECT_CONTEXT.md` open decision 13; `docs/SCOPE_003_PROPOSAL.md`; the consultation briefing; `AUDIT-013`.
+- **Approval provenance:** Approved by the user through the main coordinator (2026-09): "Both are extensions, let's try to finish first the core proposal, and then we can try to introduce ERA5-Land and then Landsat, let's build phase 3".
+- **Affected files or components:** Project plan, Phase 3–6 implementation scope, validation, documentation, presentation.
 - **Superseded decision:** None.

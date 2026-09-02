@@ -14,8 +14,8 @@ Every material scientific or scope decision is gated on explicit user approval a
 | # | Phase | Status |
 |---|-------|--------|
 | 1 | Audit and reproduce the prior study, application, shared code, and data behavior | **Done** — Phase 1 scientific and technical audit complete; it underpins every later specification |
-| 2 | Establish approved Terra/Aqua MODIS and Landsat 8/9 preprocessing and QA | **In progress — current phase** (all four MODIS diagnostics complete as of 2026-09-02; Landsat and ERA5-Land untouched; QA thresholds still to be proposed and approved) |
-| 3 | Implement approved climatology, anomaly, percentile, and data-quality methods | **Not started** — blocked on proposed decisions |
+| 2 | Establish approved Terra/Aqua MODIS and Landsat 8/9 preprocessing and QA | **MODIS side complete** (four diagnostics + `AUDIT-013`; `SPACE-001`, `QA-002`, `METH-001`…`006` approved 2026-09). Landsat and ERA5-Land preprocessing not started (scoped as extensions — see `SCOPE-003`) |
+| 3 | Implement approved climatology, anomaly, percentile, and data-quality methods | **In progress** — anomaly-engine runner + supervisor implemented and self-tested (`tools/run_anomaly_engine_ee.py` / `…supervise_anomaly_engine.py`, spec `docs/PHASE_3_ANOMALY_ENGINE_SPECIFICATION.md`). The one-time 2003–2022 climatology build is queued, waiting on a transient EEA provenance-server 503 |
 | 4 | Build approved basin comparisons and daily/monthly interface outputs | **Not started** |
 | 5 | Validate formulas, sensor separation, clouds, coverage, shoreline pixels, consistency, reproducibility | **Not started** (only prototype-level engineering validation so far) |
 | 6 | Finalize application, documented code, user guidance, technical report, and presentation | **Not started** |
@@ -43,19 +43,15 @@ A is *not* nested with B or C; B is a strict subset of C. The comparison quantif
 
 ## 4. What is still missing
 
-Twelve of the thirteen application-level decisions remain **proposed** (not approved), which blocks Phases 3–6:
+After the 2026-09 supervisor consultation, `SPACE-001` (lake-wide geometry + 0 m shoreline treatment) and `QA-002` (per-pixel acceptance rule day/night, confidence tier, monthly minimum) are approved. The remaining application-level decisions are still open and continue to block Phases 3–6:
 
 | Decision | Topic |
 |---|---|
-| `SPACE-001` | Authoritative lake / basin geometries and spatial units (shoreline audit produced the evidence but does not auto-select) |
-| `QA-002` | Minimum valid-water coverage and QA acceptance thresholds — evidence complete (`AUDIT-011` + `AUDIT-012`) and the **full proposal is drafted** (`docs/QA_002_PROPOSAL.md`, 2026-09-02): recommends candidate C for the nighttime rule (strict rule and candidates A/B yield ~0 nighttime coverage; 98.7 % of valid-water night pixels are QC byte 65 = `M1/D0/E0/T1`), a provisional symmetric daytime rule pending a bounded daytime check, a per-observation confidence tier instead of coverage-based suppression, and a ≥ 3-valid-day monthly minimum. Awaiting the supervisor consultation |
-| `SCOPE-003` | The six-week minimum viable output set vs. optional extensions |
-| `METH-001` | Historical seasonal window (±5 days or other) |
-| `METH-002` | Historical reference statistic (mean / median / smoothed climatology) |
-| `METH-003` | Percentile estimator and minimum historical sample count |
-| `METH-004` | Classification thresholds and exact thermal-status labels |
-| `METH-005` | Monthly aggregation rules when streams or days are missing |
-| `METH-006` | Whether any standardized multi-sensor indicator is created (direct averaging excluded) |
+| `SPACE-001` | **Approved for lake-wide (2026-09):** geometry = the verified WISE `HUAIH049` (2022) whole-lake polygon already used in AUDIT-001…012; **shoreline treatment = 0 m** (full polygon, no inward erosion). No authoritative Hungarian basin boundary exists; basin subdivision and littoral/pelagic zones deferred to `SCOPE-003` (and the 1 km MODIS pixel + narrow-lake geometry makes reliable basin-level nighttime output unlikely regardless) |
+| `QA-002` | **Approved (2026-09).** Per-pixel acceptance rule, day and night = **candidate C** (`mandatory_qa ∈ {0,1}, data_quality == 0, emissivity_error ≤ 1, lst_error ≤ 1` — accept the "LST error ≤ 2 K" tier), because AUDIT-011 + AUDIT-012 showed the strict rule and candidates A/B give ~0 nighttime coverage. Binding transparency condition: every daily record also reports strict/A/B coverage + the QC-byte histogram. Daily confidence tier = 3-level `ok`/`low`/`none` flag (never suppress on coverage; exact `f` cut-off calibrated in Phase 3–4). Monthly value needs ≥ 3 valid days/stream/unit. Detail in `docs/QA_002_PROPOSAL.md` and the `DECISIONS.md` QA-002 entry |
+| `SCOPE-003` | **Proposal drafted (`docs/SCOPE_003_PROPOSAL.md`, 2026-09-02).** MVP core = the MODIS anomaly product (4 streams, lake-wide, daily + monthly) + deployed GEE app + written deliverables + MVP validation. ERA5-Land and Landsat are extensions; four-basin products are future work. Two choices (ERA5-Land / Landsat: core vs extension) await the user |
+| `METH-001` … `METH-006` | **Approved (2026-09)** on the basis of `docs/METH_001_006_PROPOSAL.md` + `AUDIT-013`: ±5-day day-of-year window for all four streams; median reference; Type-7 percentile with the sample gate (≥20 full / 10–19 flagged / <10 anomaly-only); percentile-based warm labels; stream-specific monthly summaries at ≥3 valid days; no combined multi-sensor index |
+| `AUDIT-013` | Historical observation-availability probe — **complete (2026-09)**, supervised run exit 0, 192 cells, terminal re-validated. **Result:** at ± 5 days every stream × month has 20/20 historical years covered (110–195 daily observations behind every percentile) — the historical sample is not thin; what thins is per-night spatial coverage (summer nights: ~6–9 % of the lake). Confirms `METH-001` = ± 5 days for all streams and that `METH-003`'s minimum rarely binds. `docs/HISTORICAL_OBSERVATION_AVAILABILITY_REPORT.md` |
 | `DATA-005` | Detailed Landsat role, date selection, mixed-pixel treatment (not started) |
 | `DATA-006` | ERA5-Land variables, aggregation, latency communication (not started) |
 | `ARCH-001` | Precomputation asset/table schema, refresh cadence, deployment strategy |
@@ -65,10 +61,10 @@ Only `PROTO`/`AUDIT` engineering decisions have been approved beyond the origina
 
 ## 5. Other notes
 
-- **Version control:** only the three governance commits are committed. All prototype and audit code (`src/`, `tools/`) and every diagnostic specification, execution guide, and report in `docs/` is currently uncommitted (untracked or modified).
-- **Timeline:** the supervisor consultation was expected at "the beginning of September 2026" — i.e. imminent. That consultation is the natural point to resolve `SPACE-001`, `QA-002`, and `SCOPE-003` and thereby unblock Phases 3 and 4.
-- **Next step (2026-09-02):** all four MODIS Phase-2 diagnostics are complete and the `QA-002` proposal is drafted (`docs/QA_002_PROPOSAL.md`). Remaining before Phase 3: user/supervisor decision on `QA-002`, `SPACE-001`, and `SCOPE-003` at the consultation; drafting the other proposed decisions the consultation needs; and starting the Landsat (`DATA-005`) and ERA5-Land (`DATA-006`) work, which has not begun. An optional bounded daytime QA candidate comparison ("`AUDIT-013`") is recommended in the `QA-002` proposal before the daytime rule is fixed.
+- **Version control:** the AUDIT-012 + QA-002 work is committed (`6060ecc`). The three governance commits plus that one are the repo history; all other prototype/audit code (`src/`, the AUDIT-010/011 and prototype tools) and their docs are still uncommitted.
+- **Supervisor consultation (2026-09):** held. The supervisor gave **no specific methodological recommendation** and confirmed **no authoritative Hungarian lake/basin boundary** is available. Decisions are therefore taken directly from the diagnostic evidence. Outcomes: `SPACE-001` lake-wide geometry approved (the WISE `HUAIH049` whole-lake polygon; basins deferred); `QA-002` nighttime acceptance rule approved (candidate C).
+- **Next step:** run the queued climatology build once the EEA provenance endpoint recovers (~40 min), review the baseline coverage summary, then add the daily-record and monthly modes to the anomaly engine (light — they read the baseline). Then `ARCH-001` (precomputation + deployment) and Phase 4 (interface). ERA5-Land is the first extension after the MVP core; Landsat second.
 
 ## 6. One-paragraph summary
 
-Phase 1 (audit) is done. Phase 2 (preprocessing and QA) is complete on the MODIS side — all four approved diagnostics finished, `AUDIT-012` on 2026-09-02 — while the Landsat and ERA5-Land parts of Phase 2 have not begun and the QA acceptance thresholds themselves are still to be proposed and approved. Phases 3 through 6 (analytical methods, interface, validation, finalization) are blocked pending roughly twelve unresolved scientific and scope decisions that the early-September supervisor consultation is expected to unlock; the `AUDIT-012` result makes clear that the nighttime QA threshold cannot require the strict LST-error tier without discarding essentially all nighttime data.
+Phase 1 (audit) is done. The MODIS side of Phase 2 is complete: the four diagnostics plus `AUDIT-013`, and — after the 2026-09 supervisor consultation, at which the supervisor deferred to the evidence — the approved decisions `SPACE-001` (lake-wide geometry, 0 m), `QA-002` (candidate-C acceptance rule day + night, confidence tier, monthly minimum), and `METH-001` … `METH-006` (± 5-day window, median reference, Type-7 percentile with a sample gate, percentile labels, stream-specific monthly summaries, no merged index). `SCOPE-003` (the six-week MVP list) is proposed with two choices open, and the Phase 3 anomaly-engine specification is drafted. Landsat and ERA5-Land are scoped as extensions. Phase 3 (the climatology + anomaly + percentile + classification + monthly engine) is ready to build on approval; Phases 4–6 (interface, validation, finalisation) follow, with `ARCH-001` and `VAL-001` decided as Phase 3 output stabilises.
