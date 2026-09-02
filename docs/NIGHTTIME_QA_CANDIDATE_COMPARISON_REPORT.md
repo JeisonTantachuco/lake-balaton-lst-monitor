@@ -1,0 +1,76 @@
+# Nighttime QA candidate comparison report
+
+Status: **complete.** The full v14 supervised run finished 2026-09-02 (`$HOME/audit012_run_2026-09-02_v14.log`, exit 0): `NIGHTTIME_QA_CANDIDATE_COMPARISON_COMPLETE` with `"pass": true`, `validation_errors: []`, 245/245 Earth Engine phase markers, 15/15 NASA source requests, 32 results, 448 treatment records, zero `STOP`/`FAILED`/`REJECTED`/`MISMATCH` markers; the supervisor independently re-validated the entire terminal payload. Source verification: 5 of 8 `(window, stream)` selected an earliest M0,D>0 date and returned `verified_exact_original_hdf_samples` (checksum + byte size + **all EE values and masks exact**, 1–8 samples each); the other 3 (`spring/terra`, `summer/terra`, `summer/aqua`) had no M0,D>0 pixel and are `not_applicable`. See **## Results** below. No QA candidate is selected — that remains `QA-002`.
+
+Independent review (2026-08-31, `docs/NIGHTTIME_QA_CANDIDATE_COMPARISON_INDEPENDENT_REVIEW.md`) plus eight authenticated launches and a series of targeted authenticated tests produced fail-closed fixes through **v14**. Launch 1 failed on a missing `_frequency` delegation (fixed v6). Launch 2 failed on an Earth Engine 429 `Too many concurrent aggregations` on a back-to-back comparison request — accumulated load that a drain pause only mitigates. **v8 splits each `(window, stream, treatment)` comparison into three fixed 5-date batches** (each far under the concurrency ceiling), adds one earliest-anomaly probe per window/stream, and reassembles the 14 per-date records in Python — 45 → 117 Earth Engine requests, all bounded. Targeted authenticated tests then exposed and fixed two further latent bugs real data triggers: random `Image.sample` returns nothing for 1–2-pixel anomaly masks (→ deterministic `Reducer.toList`), and `ee.Image.pixelCoordinates` returns half-integer pixel-centre coordinates (→ `.floor()` to integer grid indices). Launch 4 completed all 117 Earth Engine requests and failed at the first NASA CMR search (`CMR_GRANULE_IDENTITY_FAILED`): the CMR parser assumed a UMM-G shape MOD11A1/MYD11A1 .061 does not have — no `.hdf` on `GranuleUR`, an extra `<granule-id>/` URL path segment, and no per-file checksum. **v9 reads UMM-G as it actually is and fetches the SHA-256 checksum and exact byte size from CMR's legacy `echo10` metadata** in one extra bounded request per granule (cmr → echo10 → HDF; NASA ceiling 16 → 24). A v10 launch on 2026-09-01 then hit `Earth Engine memory capacity exceeded` on a single 5-date comparison batch — a per-request compute-size limit (distinct from the 429 concurrency limit) that also varies with service load. **v10 halves the batch to fixed 2-date batches** (`COMPARISON_DATE_BATCH_SIZE = 2` → seven batches per treatment → 224 comparison requests, 245 EE requests total; pause 12 s → 8 s). Earlier v7 fixes (concurrency pause, `metric` dedup, distribution float tolerance) are retained. All offline `--self-test` suites pass at v10; an authenticated test of **56 consecutive 2-date batch requests** across all four windows, both streams, and five treatments returned zero memory errors, zero 429s, and zero validation errors (per-request 8–25 s, mostly ~10–13 s). Launch 5 (2026-09-01) then got through all 245 Earth Engine requests, the CMR search, and the `echo10` fetch, and failed the HDF download with `NASA_REDIRECT_FORBIDDEN`: LP DAAC Earthdata Cloud 302s a bearer-token protected-granule GET to a pre-signed AWS S3 URL, which the zero-redirect client rejected. **v11 makes the download follow that redirect (validated, token stripped, `echo10` SHA-256 + byte size still enforced); v12 — after launch 6 showed the real target is the LP DAAC egress CloudFront distribution `d1nklfio7vscoe.cloudfront.net` — widened the redirect allowlist to `*.cloudfront.net` / AWS S3 / LP DAAC and allows up to two hops**; a redirect elsewhere fails closed and logs the host and object. Launch 7 (v12) then completed all 245 Earth Engine requests, the CMR search, the `echo10` fetch, **and — for the first time — the authenticated HDF download plus its checksum + byte-size verification**, failing only afterward in `verify_hdf_bytes` on a wrong SDS name: the code used `Night_view_angle`, but the MOD11A1/MYD11A1 HDF-EOS2 name is `Night_view_angl` (truncated, no trailing "e"). **v13** uses the correct name (confirmed against NASA's Earthdata catalog); the Earth-Engine-side band name stays `Night_view_angle`. Launch 8 (v13) then completed the authenticated HDF download, the checksum, the byte size, the HDF open, and all five SDS shape checks, and failed only in the final per-pixel `verify_hdf_bytes` cross-check (`HDF_EE_SAMPLE_MISMATCH`). A bounded diagnostic against the real `MOD11A1.A2024019.h19v04` granule showed the three **uint8** SDS matched Earth Engine exactly at the derived tile index (pixel index and grid orientation are correct), while pyhdf's scalar-index read `selected[row, col]` returned a constant `1` for the two **uint16** SDS (`LST_Night_1km`, `Clear_night_cov`); a full-array `selected.get()` returns the true values, which match Earth Engine exactly for all five bands across all eight samples. **v14 reads each SDS once with `.get()` and indexes the NumPy array.** The four anomaly stream-seasons produce transient samples that pass MODIS-tile derivation (h19v04) and NASA-identity construction; the live CMR + `echo10` parse is confirmed against the five real anomaly granules; the redirect-reject path is confirmed against real LP DAAC; the authenticated CloudFront-hop download, checksum, byte size, HDF open, SDS shape, and the per-pixel value/mask cross-check are all confirmed on the real granule — first via a bounded diagnostic probe, then in the completed full v14 supervised run. No scientific candidate has been selected.
+
+Pinned hashes are runner `0682897404d20498996e7a73742c604ad350ad409cbb6c40b3071111a5d16760` (`nighttime_qa_candidate_comparison_python_api_v14_h19v04_date_batched_comparison`) and supervisor `27c8d71b3d54d2faa4af39be609748263033b053c92d38641c3c2a91d5ce9d55` (`nighttime_qa_candidate_comparison_windows_supervisor_v14_h19v04_date_batched_comparison`).
+
+## Purpose
+
+`AUDIT-012` compares A/B/C over the same 112 nighttime observations, all four established shoreline treatments, and separate Terra/Aqua streams. A is `V & M=0`, B admits M0/M1 only with D/E/T all zero, and C admits M0/M1 with D zero and E/T at most one. A is non-nested with B/C; B is a subset of C.
+
+## Feasibility assessment
+
+The Earth Engine portion is bounded as 245 sequential requests (4 canonical + 1 runtime fixture + 8 projection inventories + 8 earliest-anomaly probes + 224 comparison batches — 32 window×stream×treatment combinations × seven 2-date batches, reassembled in Python). This avoids a single 56-treatment-row request while evaluating A/B/C from one common graph. The exact sorted pixel-value list applies the Type-7 formula `h=(n-1)p` with linear interpolation for the five declared distribution markers; no unspecified Earth Engine percentile default is used. Original-source verification is separately bounded to at most eight earliest anomaly dates, 16 deterministic samples only on each selected date, one zero-redirect CMR `umm_json` search + one zero-redirect CMR `echo10` checksum fetch + one authenticated HDF download (up to two validated hops to a NASA-egress host) per selected date (≤ 24 NASA requests), no retry, and no retained raw data.
+
+`requirements-geometry-audit.txt` pins `pyhdf==0.11.7`, for which a CPython 3.12 Windows wheel is available. As of 2026-08-31 the `.venv-geometry-audit` virtual environment (CPython 3.12.13) contains all five pinned packages — `pyhdf==0.11.7`, `earthengine-api==1.7.37`, `shapely==2.1.1`, `pyproj==3.7.2`, `pillow==12.3.0` — and `from pyhdf.SD import SD, SDC` imports successfully; the earlier "pyhdf not yet installed" blocker is resolved. The remaining operator prerequisite is a valid Earthdata bearer token supplied through the process environment as `EARTHDATA_BEARER_TOKEN`. The runner stops before Earth Engine initialization if either prerequisite is absent. The live CMR `umm_json` search and `echo10` checksum parse are confirmed against five real MOD11A1/MYD11A1 h19v04 granules (2026-09-01). LP DAAC 302-redirects a bearer-token protected-granule GET to its egress CloudFront distribution `d1nklfio7vscoe.cloudfront.net` (confirmed 2026-09-01, launch 6); v12 follows up to two hops under `https` + NASA-egress-host (CloudFront / AWS S3 / LP DAAC) + object-name validation, re-requesting without the bearer token. The completed 2026-09-02 v14 run exercised this on five real granules: download, `echo10` checksum, byte size, HDF open, SDS shape, and the per-pixel value/mask cross-check all pass. The implementation fails closed rather than substituting a source.
+
+## Offline evidence
+
+The runner and supervisor compile and both self-tests pass, including the Windows complete-child-tree termination test. Fixtures cover exhaustive QC-byte decoding and candidate membership, the deliberate A-versus-B non-nesting case M0,D>0, B⊆C and tier partitions, histogram/metric identities, mask cross-tab partitions, exact Type-7 formula/schema including empty-group null statistics, actual date-only EE identity versus independent NASA granule identity, earliest-date-only sampling, CMR result-set admission with deterministic latest-production-timestamp selection when NASA lists reprocessed duplicates and rejection of identical timestamps, `GranuleUR`-without-`.hdf` and granule-id-subdir URL parsing, `echo10` checksum/size extraction with a stubbed transport (positive plus wrong-granule, missing-`.hdf`-entry, non-SHA/MD5 algorithm, malformed hex, zero size, URL-inconsistency, and non-XML negatives), cmr/meta zero-redirect URL gates and the hdf gate accepting a direct fetch or one-to-two validated hops to a NASA-egress host (CloudFront/S3/LP-DAAC host classification incl. suffix-attack rejection, redirect-target validation, and negatives: disallowed host, wrong object name, `http` scheme, too many redirects, same-URL), full HDF SDS/hash/sample/persistence evidence, Windows temporary-file unlink verification, MODIS grid-index normalization using realistic Lake Balaton global columns around 23,000, derived `h19v04` identity and rejection of `h18v04`, `h20v04`, mixed-tile, and terminal tile mutations, strict lifecycle ordering/anti-spoof parsing, cutoff rejection, adversarial terminal evidence, and recursive coordinate exclusions.
+
+## Results (v14 supervised run, 2026-09-02)
+
+All figures below are conditional on common validity `V` (exactly one image; observed/unmasked QC; provider-range observed/unmasked LST, view time, and view angle), summed or averaged over the four 14-day 2024 windows and both nighttime streams at the 0 m shoreline treatment (896 date × stream × treatment rows total; 8 `(window, stream)` × 14 dates at 0 m).
+
+### 1. The nighttime QC structure is almost entirely one byte
+
+| QC byte | M / D / E / T | meaning | share of all valid-water nighttime pixels |
+|---|---|---|---|
+| **65** | M1 / D0 / E0 / T1 | "other quality" mandatory tier, good data quality, emissivity error ≤ 0.01, **average LST error ≤ 2 K** (the `T=1` tier, not the strict `T=0` "≤ 1 K") | **98.7 %** (8 176 / 8 284 px) |
+| 8 | M0 / D2 / E0 / T0 | "good" mandatory tier, but data-quality flag 2 ("TBD"/cloud-influenced) | 0.5 % (40 px) |
+| 17 | M1 / D0 / E1 / T0 | emissivity error ≤ 0.02 | 0.3 % |
+| 73 | M1 / D2 / E0 / T1 | | 0.3 % |
+| 81 | M1 / D0 / E1 / T1 | | 0.2 % |
+
+Only **five distinct QC bytes** appear in the entire valid-water nighttime dataset (65, 8, 17, 73, 81 — they sum to the full 8 284-pixel total), and **none of them has `D=0 & E=0 & T=0`**. The entire 2024 nighttime Lake Balaton LST record is carried by pixels whose **LST error flag is 1 ("average LST error ≤ 2 K"), not 0 ("≤ 1 K")**, in the M1 ("other quality") mandatory tier with `D=0` and `E=0`.
+
+### 2. Candidate coverage (daily valid-water fraction, 0 m)
+
+| Candidate | Definition | Positive days (of 112) | Avg daily coverage | Max daily coverage | Coverage vs `V` |
+|---|---|---|---|---|---|
+| `V` (reference) | common validity | 88 | 0.1071 | 0.7526 | — |
+| **A** = `V & M=0` | detailed flags reported, not gating | **12** | 0.00051 | 0.023 | **~0.5 %** |
+| **B** = `V & M∈{0,1} & D=0 & E=0 & T=0` | all detailed flags zero | **0** | 0.0 | 0.0 | **0 %** |
+| **C** = `V & M∈{0,1} & D=0 & E≤1 & T≤1` | one level of E/T tolerated | **88** | 0.1062 | 0.7526 | **~99.2 %** |
+
+Per `(window, stream)` the ratio `C / V` (pixels summed over 14 dates) ranges 0.978–1.000. `A` totals: winter/terra 8, winter/aqua 4, spring/aqua 3, autumn/terra 5, autumn/aqua 20, and **0** for spring/terra, summer/terra, summer/aqua. `B` totals: **0** everywhere. All of `C`'s coverage sits in the `C_minus_B` / M1 partition (`C_minus_B_M0 = 0` everywhere); `A ∩ B = ∅`.
+
+### 3. Consequence for the three interpretations
+
+- **A** (strict `M=0`) reproduces the `AUDIT-011` outcome: near-total nighttime data loss. Essentially every `M=0` nighttime pixel also has `D>0`, so even A's ~0.5 % is "good mandatory / poor data quality".
+- **B** (all detailed flags zero) discards **100 %** of nighttime coverage in these windows — no valid-water nighttime pixel has `D`, `E` and `T` all zero (the `T=0` pixels that exist, bytes 8 and 17, fail on `D=2` or `E=1` respectively).
+- **C** (tolerate `E≤1`, `T≤1`) recovers ~99 % of common validity, entirely through QC byte 65.
+
+The A-vs-B/C and B-vs-C `temperature_mean_differences` are all null: A∩B, A_only and B are empty or near-empty, so there is no population contrast to measure. The group that carries C's coverage (`C_minus_B`, 8 220 px) has weighted-mean LST ≈ 7.0 °C (range −10.9 to +28.7 across seasons), view angle ≈ 2° (full ±65° swath represented), `Clear_night_cov` ≈ 1.14.
+
+### 4. Shoreline sensitivity
+
+Mean change in daily coverage fraction relative to the 0 m polygon, averaged over the 8 `(window, stream)`:
+
+| Erosion | A | B | C |
+|---|---|---|---|
+| ~460 m | +0.00004 | 0 | −0.0090 |
+| 500 m | +0.00004 | 0 | −0.0096 |
+| ~925 m | +0.00009 | 0 | −0.0150 |
+
+Eroding the shoreline lowers C's coverage fraction by roughly 0.9–1.5 percentage points (the removed near-shore ring had a slightly higher valid fraction than the interior); A is unaffected at the noise level; B stays zero.
+
+### 5. Input to `QA-002`
+
+`AUDIT-012` selects nothing. Its evidence for `QA-002` is: on Lake Balaton, any nighttime QA rule that requires the strict LST-error tier (`T=0`) — including candidate B and any "all detailed flags zero" rule — yields essentially **no nighttime coverage** for 2024; only a rule at least as permissive as candidate C (`D=0, E≤1, T≤1`) keeps the nighttime record usable, and it does so almost entirely through `M1 / D0 / E0 / T1` retrievals. Whether "LST error ≤ 2 K" is an acceptable floor for the intended thermal-anomaly product is the open `QA-002` question.
+
+## Scientific boundary
+
+This diagnostic compared coverage, missing/zero dates, seasonal behavior, temperature/view/Clear selectivity, and shoreline sensitivity. These observations support the later `QA-002` proposal, but they do not rank A/B/C by themselves and do not authorize changing the completed audit or adopting a final QA method.
