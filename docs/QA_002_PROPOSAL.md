@@ -3,7 +3,8 @@
 - **Date:** 2026-09-02
 - **Author:** Main Codex coordinator, for the user
 - **Decision addressed:** `QA-002` (proposed; `PROJECT_CONTEXT.md` open decision 6) — "Select minimum valid-water coverage and other QA acceptance thresholds for daily and monthly reporting."
-- **Status:** **proposal only.** This document does not approve anything, does not change any completed audit (`AUDIT-001` … `AUDIT-012`) or the prototype's strict engineering rule, and does not resolve `SPACE-001`, `SCOPE-003`, or any `METH-*`/`DATA-*` decision. Approval requires an explicit user decision recorded in `DECISIONS.md`; the natural approval point is the early-September supervisor consultation (briefing section C).
+- **Status update (2026-09, after the supervisor consultation):** the supervisor gave no methodological recommendation, so the decisions were taken directly from the `AUDIT-011` + `AUDIT-012` evidence. **`QA-002` is APPROVED** (`DECISIONS.md`): nighttime and daytime acceptance rule = candidate C (§3.1, §3.3), with the §3.1 transparency conditions binding; the daily confidence tier is a 3-level `ok`/`low`/`none` flag (§3.4, exact `f` cut-off calibrated in Phase 3–4); a monthly value needs ≥ 3 valid days (§3.5). **`SPACE-001`** is approved for the lake-wide WISE polygon (basins deferred to `SCOPE-003`) and the **shoreline treatment is 0 m** (full polygon) for the MVP.
+- **Original status:** proposal only. This document does not change any completed audit (`AUDIT-001` … `AUDIT-012`) or the prototype's strict engineering rule, and does not resolve `SCOPE-003` or any `METH-*`/`DATA-*` decision.
 - **Evidence base:** `AUDIT-011` (`docs/NIGHTTIME_GATE_ATTRIBUTION_DIAGNOSTIC_REPORT.md`), `AUDIT-012` (`docs/NIGHTTIME_QA_CANDIDATE_COMPARISON_REPORT.md`), the prototype QC decoding and strict rule (`docs/FIRST_PROTOTYPE_SPECIFICATION.md` §7–8), `QA-001` (approved), and the MOD11A1/MYD11A1 Collection 6.1 QC-byte definitions.
 
 ---
