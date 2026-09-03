@@ -54,7 +54,7 @@ After the 2026-09 supervisor consultation, `SPACE-001` (lake-wide geometry + 0 m
 | `AUDIT-013` | Historical observation-availability probe — **complete (2026-09)**, supervised run exit 0, 192 cells, terminal re-validated. **Result:** at ± 5 days every stream × month has 20/20 historical years covered (110–195 daily observations behind every percentile) — the historical sample is not thin; what thins is per-night spatial coverage (summer nights: ~6–9 % of the lake). Confirms `METH-001` = ± 5 days for all streams and that `METH-003`'s minimum rarely binds. `docs/HISTORICAL_OBSERVATION_AVAILABILITY_REPORT.md` |
 | `DATA-005` | Detailed Landsat role, date selection, mixed-pixel treatment (not started) |
 | `DATA-006` | ERA5-Land variables, aggregation, latency communication (not started) |
-| `ARCH-001` | Precomputation asset/table schema, refresh cadence, deployment strategy |
+| `ARCH-001` | **Proposal drafted (`docs/ARCH_001_PROPOSAL.md`, 2026-09-03).** Phase 3 outputs → three coordinate-free Earth Engine tables under `projects/ee-jtantaroman/assets/balaton_anomaly/`; the app reads them directly (no recomputation); baseline immutable, daily/monthly appended by a manual monthly `--daily-records` + `--export-assets` step; deployment = a published GEE App. Needs an explicit yes on the one relaxation: the lake polygon as a single hash-pinned EE asset (deployed app only) |
 | `VAL-001` | Validation acceptance criteria and the in-situ fallback |
 
 Only `PROTO`/`AUDIT` engineering decisions have been approved beyond the original 13 August 2026 governance and scope baseline.
