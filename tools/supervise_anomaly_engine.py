@@ -25,7 +25,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER_PATH = ROOT / "tools" / "run_anomaly_engine_ee.py"
 BASE_SUPERVISOR_PATH = ROOT / "tools" / "supervise_whole_lake_boundary_shoreline_audit.py"
-EXPECTED_RUNNER_SHA256 = "f649df317cc0694b8051d608f6040c7b094c706d6f4b5916eb748c1b92a8510b"
+EXPECTED_RUNNER_SHA256 = "ba17225dc32a16539f1cda90aa43485d2a5f6f97960dcb3eb57cbc16f763ba06"
 EXPECTED_BASE_SUPERVISOR_SHA256 = "8614de215b21e1722520f482c22516c04dea13950d58ba194ded252e9cfd7064"
 IMPLEMENTATION = "anomaly_engine_windows_supervisor_v1"
 REQUEST_LIMIT_SECONDS = 480.000
@@ -35,8 +35,10 @@ PROTOCOL_EXIT_CODE = 125
 TERMINAL_KEYS = {
     "build_climatology": "ANOMALY_ENGINE_CLIMATOLOGY_COMPLETE",
     "daily_records": "ANOMALY_ENGINE_DAILY_RECORDS_COMPLETE",
+    "export_assets": "ANOMALY_ENGINE_EXPORT_ASSETS_COMPLETE",
 }
-MODE_FLAGS = {"build_climatology": "--build-climatology", "daily_records": "--daily-records"}
+MODE_FLAGS = {"build_climatology": "--build-climatology", "daily_records": "--daily-records",
+              "export_assets": "--export-assets"}
 FAIL_KEY = "ANOMALY_ENGINE_FAILED"
 _BASE: Any = None
 _RUNNER: Any = None
@@ -168,9 +170,43 @@ def validate_daily_records_terminal(payload: Any) -> None:
     assert_coordinate_free(payload)
 
 
+def validate_export_terminal(payload: Any) -> None:
+    runner = load_runner()
+    if not isinstance(payload, dict):
+        raise SupervisorError("TERMINAL_SHAPE_FAILED")
+    required = {
+        "specification", "implementation", "coordinate_free", "reads_coordinates",
+        "asset_folder", "asset_feature_counts", "geometry_asset_id",
+        "geometry_canonical_sha256", "climatology_baseline_rows_sha256",
+        "daily_records_sha256", "monthly_rows_sha256", "pass",
+    }
+    if set(payload) != required:
+        raise SupervisorError("TERMINAL_KEYSET_FAILED")
+    # this mode deliberately writes one geometry asset -- coordinate_free is False here
+    if payload["specification"] != runner.SPECIFICATION or \
+       payload["implementation"] != runner.IMPLEMENTATION or \
+       payload["reads_coordinates"] is not False or payload["pass"] is not True:
+        raise SupervisorError("TERMINAL_CONTRACT_FAILED")
+    if payload["geometry_canonical_sha256"] != \
+       runner.PINNED_GEOMETRY_IDENTITY["canonical_sha256"]:
+        raise SupervisorError("TERMINAL_GEOMETRY_HASH_FAILED")
+    counts = payload["asset_feature_counts"]
+    if set(counts) != {"lake_boundary", "climatology_baseline", "daily_anomaly_records",
+                       "monthly_summaries"} or counts["lake_boundary"] != 1 or \
+       counts["climatology_baseline"] != len(runner.STREAM_IDS) * runner.DAYS_IN_YEAR or \
+       any(not isinstance(v, int) or v <= 0 for v in counts.values()):
+        raise SupervisorError("TERMINAL_ASSET_COUNT_FAILED")
+    # cross-check the local artefacts still match the exported hashes
+    daily_artifact = json.loads(
+        (runner.STATE_DIR / "daily_anomaly_records.json").read_text(encoding="utf-8"))
+    if daily_artifact.get("records_sha256") != payload["daily_records_sha256"]:
+        raise SupervisorError("DAILY_ARTIFACT_HASH_MISMATCH")
+
+
 TERMINAL_VALIDATORS = {
     "build_climatology": validate_climatology_terminal,
     "daily_records": validate_daily_records_terminal,
+    "export_assets": validate_export_terminal,
 }
 
 
@@ -279,10 +315,13 @@ def run(project: str, mode: str) -> int:
     if mode == "build_climatology":
         completion["baseline_row_count"] = terminal_seen["baseline_row_count"]
         completion["baseline_rows_sha256"] = terminal_seen["baseline_rows_sha256"]
-    else:
+    elif mode == "daily_records":
         completion["daily_record_count"] = terminal_seen["daily_record_count"]
         completion["daily_records_sha256"] = terminal_seen["daily_records_sha256"]
         completion["monthly_rows_sha256"] = terminal_seen["monthly_rows_sha256"]
+    else:
+        completion["asset_folder"] = terminal_seen["asset_folder"]
+        completion["asset_feature_counts"] = terminal_seen["asset_feature_counts"]
     print(json.dumps({"ANOMALY_ENGINE_SUPERVISOR_COMPLETE": completion},
                      sort_keys=True), flush=True)
     return 0
@@ -331,6 +370,7 @@ def main() -> int:
     parser.add_argument("--project")
     parser.add_argument("--build-climatology", action="store_true")
     parser.add_argument("--daily-records", action="store_true")
+    parser.add_argument("--export-assets", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -338,9 +378,10 @@ def main() -> int:
     if not args.project:
         parser.error("--project is required unless --self-test is used")
     mode = "build_climatology" if args.build_climatology else \
-        "daily_records" if args.daily_records else None
+        "daily_records" if args.daily_records else \
+        "export_assets" if args.export_assets else None
     if mode is None:
-        parser.error("choose a mode: --build-climatology or --daily-records")
+        parser.error("choose a mode: --build-climatology, --daily-records or --export-assets")
         return 2
     try:
         return run(args.project, mode)

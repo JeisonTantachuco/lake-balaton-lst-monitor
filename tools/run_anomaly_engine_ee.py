@@ -154,6 +154,20 @@ def window_offsets(reference_doy: int, half_width: int = WINDOW_HALF_WIDTH_DAYS)
             for delta in range(-half_width, half_width + 1)}
 
 
+def type7_quantile(sorted_values: list[float], p: float) -> float | None:
+    """Value at percentile p (0..100) using the Type-7 convention h = (n-1)p."""
+    n = len(sorted_values)
+    if n == 0:
+        return None
+    if n == 1:
+        return sorted_values[0]
+    h = (n - 1) * (p / 100.0)
+    lo = int(math.floor(h))
+    if lo + 1 >= n:
+        return sorted_values[-1]
+    return round(sorted_values[lo] + (h - lo) * (sorted_values[lo + 1] - sorted_values[lo]), 4)
+
+
 def type7_percentile_rank(sorted_values: list[float], x: float) -> float:
     """Percentile (0..100) of x within sorted_values: the value p for which the
     Type-7 quantile Q(p) (h = (n-1)p, linear interpolation between order statistics)
@@ -755,6 +769,179 @@ def build_daily_records(project: str) -> int:
     return 0
 
 
+ASSET_SUBFOLDER = "balaton_anomaly"
+# Earth Engine table-asset feature properties must be scalars -- no lists. The baseline
+# asset therefore stores a fixed set of percentile break-points as separate columns
+# (covering the METH-004 label boundaries 10/90/95/99 plus context); the full sorted
+# list and n_by_year stay only in the local climatology_baseline.json artefact.
+ASSET_PERCENTILES = (1, 5, 10, 25, 50, 75, 90, 95, 99)
+
+
+def _asset_folder(project: str) -> str:
+    return f"projects/{project}/assets/{ASSET_SUBFOLDER}"
+
+
+def _clean_props(row: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in row.items() if v is not None}
+
+
+def _baseline_asset_row(row: dict[str, Any]) -> dict[str, Any]:
+    """The app-facing baseline row: scalar summary stats + a fixed set of percentile
+    break-points as scalar columns (Earth Engine table properties cannot be lists).
+    The full sorted list and n_by_year stay in the local JSON artefact only."""
+    out = {k: row[k] for k in ("stream_id", "day_of_year", "n") if k in row}
+    for key in ("median_lst_c", "mean_lst_c", "sd_lst_c", "median_minus_mean_c",
+                "median_valid_water_fraction"):
+        if row.get(key) is not None:
+            out[key] = row[key]
+    if row["n"] >= PERCENTILE_MIN_N:
+        for p in ASSET_PERCENTILES:
+            out[f"pctl_p{p:02d}_c"] = type7_quantile(row["sorted_daily_lst_c"], p)
+    return out
+
+
+def _feature_collection(ee: Any, rows: list[dict[str, Any]],
+                        geometry_json: Any = None) -> Any:
+    # Earth Engine table assets require a geometry on every feature. The three data
+    # tables are non-spatial (their properties carry only dates, temperatures, counts);
+    # they get the null-island sentinel point [0, 0] -- a recognised "no location"
+    # marker, not a source coordinate. Only lake_boundary carries a real geometry.
+    default_geometry = ee.Geometry.Point([0, 0])
+    features = [ee.Feature(ee.Geometry(geometry_json) if geometry_json is not None
+                           else default_geometry, _clean_props(row)) for row in rows]
+    return ee.FeatureCollection(features)
+
+
+def _ensure_folder(ee: Any, folder_id: str) -> None:
+    try:
+        ee.data.getAsset(folder_id)
+        return
+    except Exception:  # noqa: BLE001
+        pass
+    ee.data.createAsset({"type": "FOLDER"}, folder_id)
+
+
+def _asset_exists(ee: Any, asset_id: str) -> bool:
+    try:
+        ee.data.getAsset(asset_id)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _run_table_exports(ee: Any, jobs: list[dict[str, Any]], session_deadline: float) -> None:
+    tasks = []
+    for job in jobs:
+        if job["overwrite"] and _asset_exists(ee, job["asset_id"]):
+            ee.data.deleteAsset(job["asset_id"])
+        task = ee.batch.Export.table.toAsset(
+            collection=job["collection"], description=job["description"],
+            assetId=job["asset_id"])
+        task.start()
+        tasks.append((job["description"], task))
+        print(json.dumps({"ANOMALY_ENGINE_EXPORT_STARTED": {
+            "description": job["description"], "asset_id": job["asset_id"]}},
+            sort_keys=True), flush=True)
+    pending = {desc: task for desc, task in tasks}
+    while pending:
+        if time.monotonic() > session_deadline - 120:
+            raise EngineFailure("EXPORT_SESSION_DEADLINE_REACHED")
+        time.sleep(15.0)
+        for desc, task in list(pending.items()):
+            state = task.status().get("state")
+            if state in ("COMPLETED",):
+                del pending[desc]
+                print(json.dumps({"ANOMALY_ENGINE_EXPORT_DONE": {"description": desc}},
+                                 sort_keys=True), flush=True)
+            elif state in ("FAILED", "CANCELLED", "CANCEL_REQUESTED"):
+                raise EngineFailure("EXPORT_TASK_FAILED:" + desc + ":" + str(
+                    task.status().get("error_message", state)))
+
+
+def export_assets(project: str) -> int:
+    ee, audit010, runner, geometry_json, context = _init_ee(project)
+    identity = _geometry_identity(context["source_record"])
+    source_record = context["source_record"]
+    folder = _asset_folder(project)
+
+    baseline_payload = _load_baseline_artifact()
+    daily_path = STATE_DIR / "daily_anomaly_records.json"
+    monthly_path = STATE_DIR / "monthly_summaries.json"
+    if not daily_path.exists() or not monthly_path.exists():
+        raise EngineFailure("DAILY_OR_MONTHLY_ARTIFACT_MISSING")
+    daily_payload = json.loads(daily_path.read_text(encoding="utf-8"))
+    monthly_payload = json.loads(monthly_path.read_text(encoding="utf-8"))
+    if canonical_sha256(daily_payload["records"]) != daily_payload["records_sha256"] or \
+       canonical_sha256(monthly_payload["rows"]) != monthly_payload["rows_sha256"]:
+        raise EngineFailure("ARTIFACT_HASH_MISMATCH")
+    if validate_daily_records(daily_payload["records"]):
+        raise EngineFailure("DAILY_ARTIFACT_INVALID")
+
+    print(json.dumps({"ANOMALY_ENGINE_PREFLIGHT": {
+        "mode": "export_assets", "specification": SPECIFICATION, "implementation": IMPLEMENTATION,
+        "asset_folder": folder, "geometry_identity_sha256": identity,
+        "geometry_asset_supersedes": "audit_002_003_004_006_transient_only_rule_for_the_deployed_app",
+        "reads_coordinates": False}}, sort_keys=True), flush=True)
+
+    _ensure_folder(ee, folder)
+    session_deadline = context["session_deadline"]
+
+    boundary_props = {
+        "role": "lake_boundary", "geometry_id": "wise_wfd_v1_9_huaih049_2022_unrounded",
+        "raw_sha256": source_record.get("raw_sha256"),
+        "canonical_sha256": source_record["canonical_sha256"],
+        "coordinate_tuple_count_including_closure": source_record[
+            "coordinate_tuple_count_including_closure"],
+        "verification_mode": source_record.get("verification_mode", "live_full_verified"),
+        "specification": SPECIFICATION,
+    }
+    baseline_rows = [_baseline_asset_row(r) for r in baseline_payload["rows"]]
+
+    jobs: list[dict[str, Any]] = []
+    boundary_id = folder + "/lake_boundary"
+    if not _asset_exists(ee, boundary_id):
+        jobs.append({"asset_id": boundary_id, "description": "balaton_lake_boundary",
+                     "overwrite": False,
+                     "collection": _feature_collection(ee, [boundary_props], geometry_json)})
+    baseline_id = folder + "/climatology_baseline"
+    if not _asset_exists(ee, baseline_id):
+        jobs.append({"asset_id": baseline_id, "description": "balaton_climatology_baseline",
+                     "overwrite": False, "collection": _feature_collection(ee, baseline_rows)})
+    jobs.append({"asset_id": folder + "/daily_anomaly_records",
+                 "description": "balaton_daily_anomaly_records", "overwrite": True,
+                 "collection": _feature_collection(ee, daily_payload["records"])})
+    jobs.append({"asset_id": folder + "/monthly_summaries",
+                 "description": "balaton_monthly_summaries", "overwrite": True,
+                 "collection": _feature_collection(ee, monthly_payload["rows"])})
+
+    _run_table_exports(ee, jobs, session_deadline)
+
+    verified: dict[str, int] = {}
+    for name, expected in (("lake_boundary", 1),
+                           ("climatology_baseline", len(baseline_rows)),
+                           ("daily_anomaly_records", len(daily_payload["records"])),
+                           ("monthly_summaries", len(monthly_payload["rows"]))):
+        count = int(ee.FeatureCollection(folder + "/" + name).size().getInfo())
+        verified[name] = count
+        if count != expected:
+            raise EngineFailure(f"ASSET_FEATURE_COUNT_MISMATCH:{name}:{count}!={expected}")
+
+    terminal = {
+        "specification": SPECIFICATION, "implementation": IMPLEMENTATION,
+        "coordinate_free": False, "reads_coordinates": False,
+        "asset_folder": folder, "asset_feature_counts": verified,
+        "geometry_asset_id": boundary_id,
+        "geometry_canonical_sha256": source_record["canonical_sha256"],
+        "climatology_baseline_rows_sha256": baseline_payload["rows_sha256"],
+        "daily_records_sha256": daily_payload["records_sha256"],
+        "monthly_rows_sha256": monthly_payload["rows_sha256"],
+        "pass": True,
+    }
+    print(json.dumps({"ANOMALY_ENGINE_EXPORT_ASSETS_COMPLETE": terminal},
+                     sort_keys=True, separators=(",", ":")), flush=True)
+    return 0
+
+
 def _baseline_coverage_summary(baseline: list[dict[str, Any]]) -> dict[str, Any]:
     summary: dict[str, Any] = {}
     for stream_id in STREAM_IDS:
@@ -860,6 +1047,39 @@ def self_test() -> int:
             failures.append(f"type7:{x}->{got}!={expected}")
     if type7_percentile_rank([5.0], 5.0) != 50.0:
         failures.append("type7_singleton")
+    # forward quantile is the inverse of the rank on the sample grid
+    for p in (0.0, 25.0, 50.0, 75.0, 100.0):
+        q = type7_quantile(s, p)
+        if abs(type7_percentile_rank(s, q) - p) > 1e-6:
+            failures.append(f"type7_quantile_roundtrip:{p}")
+    if type7_quantile([], 50.0) is not None or type7_quantile([7.0], 90.0) != 7.0:
+        failures.append("type7_quantile_edges")
+    br = _baseline_asset_row({"stream_id": "terra_day", "day_of_year": 5, "n": 30,
+                              "n_by_year": [0] * len(HISTORICAL_YEARS),
+                              "sorted_daily_lst_c": [float(i) for i in range(30)],
+                              "median_lst_c": 14.5, "mean_lst_c": 14.5, "sd_lst_c": 8.6,
+                              "median_minus_mean_c": 0.0, "median_valid_water_fraction": 0.4})
+    pctl_cols = [f"pctl_p{p:02d}_c" for p in ASSET_PERCENTILES]
+    if any(c not in br for c in pctl_cols) or "n_by_year" in br or \
+       "sorted_daily_lst_c" in br or \
+       [br[c] for c in pctl_cols] != sorted(br[c] for c in pctl_cols) or \
+       any(not isinstance(v, (int, float)) or isinstance(v, bool) or isinstance(v, list)
+           for v in br.values() if not isinstance(v, str)):
+        failures.append("baseline_asset_row")
+    empty_br = _baseline_asset_row({"stream_id": "terra_day", "day_of_year": 6, "n": 0,
+                                    "n_by_year": [0] * len(HISTORICAL_YEARS),
+                                    "sorted_daily_lst_c": [], "median_lst_c": None,
+                                    "mean_lst_c": None, "sd_lst_c": None,
+                                    "median_minus_mean_c": None,
+                                    "median_valid_water_fraction": None})
+    if any(c in empty_br for c in pctl_cols) or "median_lst_c" in empty_br:
+        failures.append("baseline_asset_row_empty")
+    # every asset table row must be flat (scalars/strings only) for Export.table.toAsset
+    for sample in (br, empty_br):
+        if any(isinstance(v, (list, dict)) for v in sample.values()):
+            failures.append("baseline_asset_row_not_flat")
+    if _clean_props({"a": 1, "b": None, "c": [1, 2]}) != {"a": 1, "c": [1, 2]}:
+        failures.append("clean_props")
 
     # classification boundaries
     for pct, label in [(5, "below normal"), (10, "within normal range"),
@@ -973,6 +1193,10 @@ def self_test() -> int:
     bad_dr2[0]["anomaly_vs_median_c"] = 99.0
     if "DAILY_RECORD_ANOMALY_IDENTITY_FAILED" not in validate_daily_records(bad_dr2):
         failures.append("daily_record_identity_negative")
+    # daily + monthly rows must also be flat (Export.table.toAsset rejects list/dict props)
+    for sample_rows, tag in ((drecs, "daily"), (assemble_monthly(records), "monthly")):
+        if any(isinstance(v, (list, dict)) for r in sample_rows for v in r.values()):
+            failures.append("asset_row_not_flat:" + tag)
 
     for bad_key in ("latitude", "geometry_coordinates", "bbox"):
         try:
@@ -996,6 +1220,7 @@ def main() -> int:
     parser.add_argument("--project")
     parser.add_argument("--build-climatology", action="store_true")
     parser.add_argument("--daily-records", action="store_true")
+    parser.add_argument("--export-assets", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -1007,7 +1232,9 @@ def main() -> int:
             return build_climatology(args.project)
         if args.daily_records:
             return build_daily_records(args.project)
-        parser.error("choose a mode: --build-climatology or --daily-records")
+        if args.export_assets:
+            return export_assets(args.project)
+        parser.error("choose a mode: --build-climatology, --daily-records or --export-assets")
         return 2
     except EngineFailure as exc:
         print(json.dumps({"ANOMALY_ENGINE_FAILED": {
