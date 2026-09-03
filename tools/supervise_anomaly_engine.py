@@ -25,7 +25,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER_PATH = ROOT / "tools" / "run_anomaly_engine_ee.py"
 BASE_SUPERVISOR_PATH = ROOT / "tools" / "supervise_whole_lake_boundary_shoreline_audit.py"
-EXPECTED_RUNNER_SHA256 = "a79215b476204c0c66c755b40aa81d81052e36374d5c682661a09bc30da06202"
+EXPECTED_RUNNER_SHA256 = "f649df317cc0694b8051d608f6040c7b094c706d6f4b5916eb748c1b92a8510b"
 EXPECTED_BASE_SUPERVISOR_SHA256 = "8614de215b21e1722520f482c22516c04dea13950d58ba194ded252e9cfd7064"
 IMPLEMENTATION = "anomaly_engine_windows_supervisor_v1"
 REQUEST_LIMIT_SECONDS = 480.000
@@ -34,7 +34,9 @@ TIMEOUT_EXIT_CODE = 124
 PROTOCOL_EXIT_CODE = 125
 TERMINAL_KEYS = {
     "build_climatology": "ANOMALY_ENGINE_CLIMATOLOGY_COMPLETE",
+    "daily_records": "ANOMALY_ENGINE_DAILY_RECORDS_COMPLETE",
 }
+MODE_FLAGS = {"build_climatology": "--build-climatology", "daily_records": "--daily-records"}
 FAIL_KEY = "ANOMALY_ENGINE_FAILED"
 _BASE: Any = None
 _RUNNER: Any = None
@@ -131,12 +133,53 @@ def validate_climatology_terminal(payload: Any) -> None:
     assert_coordinate_free(baseline_payload)
 
 
+def validate_daily_records_terminal(payload: Any) -> None:
+    runner = load_runner()
+    if not isinstance(payload, dict):
+        raise SupervisorError("TERMINAL_SHAPE_FAILED")
+    required = {
+        "specification", "implementation", "coordinate_free", "reads_coordinates",
+        "monitoring_period", "daily_record_count", "observed_days_by_stream",
+        "daily_records_sha256", "monthly_summary", "monthly_rows_sha256", "pass",
+    }
+    if set(payload) != required:
+        raise SupervisorError("TERMINAL_KEYSET_FAILED")
+    if payload["specification"] != runner.SPECIFICATION or \
+       payload["implementation"] != runner.IMPLEMENTATION or \
+       payload["coordinate_free"] is not True or payload["reads_coordinates"] is not False or \
+       payload["pass"] is not True:
+        raise SupervisorError("TERMINAL_CONTRACT_FAILED")
+    if set(payload["observed_days_by_stream"]) != set(runner.STREAM_IDS) or \
+       any(not isinstance(v, int) or v < 0
+           for v in payload["observed_days_by_stream"].values()):
+        raise SupervisorError("TERMINAL_OBSERVED_DAYS_FAILED")
+    for name in ("daily_anomaly_records", "monthly_summaries"):
+        artifact = runner.STATE_DIR / (name + ".json")
+        if not artifact.exists():
+            raise SupervisorError("ARTIFACT_MISSING:" + name)
+        assert_coordinate_free(json.loads(artifact.read_text(encoding="utf-8")))
+    daily_artifact = json.loads(
+        (runner.STATE_DIR / "daily_anomaly_records.json").read_text(encoding="utf-8"))
+    if daily_artifact.get("records_sha256") != payload["daily_records_sha256"] or \
+       runner.canonical_sha256(daily_artifact["records"]) != payload["daily_records_sha256"]:
+        raise SupervisorError("DAILY_ARTIFACT_HASH_MISMATCH")
+    if runner.validate_daily_records(daily_artifact["records"]):
+        raise SupervisorError("DAILY_ARTIFACT_REVALIDATION_FAILED")
+    assert_coordinate_free(payload)
+
+
+TERMINAL_VALIDATORS = {
+    "build_climatology": validate_climatology_terminal,
+    "daily_records": validate_daily_records_terminal,
+}
+
+
 def run(project: str, mode: str) -> int:
     if os.name != "nt":
         raise SupervisorError("ANOMALY_ENGINE_SUPERVISOR_REQUIRES_WINDOWS")
     base = load_base()
     load_runner()
-    flag = {"build_climatology": "--build-climatology"}[mode]
+    flag = MODE_FLAGS[mode]
     command = [sys.executable, str(RUNNER_PATH), "--project", project, flag]
     environment = os.environ.copy()
     environment["PYTHONUNBUFFERED"] = "1"
@@ -226,16 +269,22 @@ def run(project: str, mode: str) -> int:
             sort_keys=True), flush=True)
         return PROTOCOL_EXIT_CODE
     try:
-        validate_climatology_terminal(terminal_seen)
+        TERMINAL_VALIDATORS[mode](terminal_seen)
     except SupervisorError as exc:
         print(json.dumps({"ANOMALY_ENGINE_SUPERVISOR_STOP": {
             "reason": "TERMINAL_REVALIDATION_FAILED:" + str(exc), "automatic_retry": False}},
             sort_keys=True), flush=True)
         return PROTOCOL_EXIT_CODE
-    print(json.dumps({"ANOMALY_ENGINE_SUPERVISOR_COMPLETE": {
-        "mode": mode, "terminal_revalidated": True,
-        "baseline_row_count": terminal_seen["baseline_row_count"],
-        "baseline_rows_sha256": terminal_seen["baseline_rows_sha256"]}}, sort_keys=True), flush=True)
+    completion = {"mode": mode, "terminal_revalidated": True}
+    if mode == "build_climatology":
+        completion["baseline_row_count"] = terminal_seen["baseline_row_count"]
+        completion["baseline_rows_sha256"] = terminal_seen["baseline_rows_sha256"]
+    else:
+        completion["daily_record_count"] = terminal_seen["daily_record_count"]
+        completion["daily_records_sha256"] = terminal_seen["daily_records_sha256"]
+        completion["monthly_rows_sha256"] = terminal_seen["monthly_rows_sha256"]
+    print(json.dumps({"ANOMALY_ENGINE_SUPERVISOR_COMPLETE": completion},
+                     sort_keys=True), flush=True)
     return 0
 
 
@@ -281,22 +330,25 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project")
     parser.add_argument("--build-climatology", action="store_true")
+    parser.add_argument("--daily-records", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
         return self_test()
     if not args.project:
         parser.error("--project is required unless --self-test is used")
-    if args.build_climatology:
-        try:
-            return run(args.project, "build_climatology")
-        except SupervisorError as exc:
-            print(json.dumps({"ANOMALY_ENGINE_SUPERVISOR_STOP": {
-                "reason": type(exc).__name__ + ":" + str(exc), "automatic_retry": False}},
-                sort_keys=True), flush=True)
-            return PROTOCOL_EXIT_CODE
-    parser.error("choose a mode: --build-climatology")
-    return 2
+    mode = "build_climatology" if args.build_climatology else \
+        "daily_records" if args.daily_records else None
+    if mode is None:
+        parser.error("choose a mode: --build-climatology or --daily-records")
+        return 2
+    try:
+        return run(args.project, mode)
+    except SupervisorError as exc:
+        print(json.dumps({"ANOMALY_ENGINE_SUPERVISOR_STOP": {
+            "reason": type(exc).__name__ + ":" + str(exc), "automatic_retry": False}},
+            sort_keys=True), flush=True)
+        return PROTOCOL_EXIT_CODE
 
 
 if __name__ == "__main__":
