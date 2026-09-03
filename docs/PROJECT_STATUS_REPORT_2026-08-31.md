@@ -15,8 +15,8 @@ Every material scientific or scope decision is gated on explicit user approval a
 |---|-------|--------|
 | 1 | Audit and reproduce the prior study, application, shared code, and data behavior | **Done** — Phase 1 scientific and technical audit complete; it underpins every later specification |
 | 2 | Establish approved Terra/Aqua MODIS and Landsat 8/9 preprocessing and QA | **MODIS side complete** (four diagnostics + `AUDIT-013`; `SPACE-001`, `QA-002`, `METH-001`…`006` approved 2026-09). Landsat and ERA5-Land preprocessing not started (scoped as extensions — see `SCOPE-003`) |
-| 3 | Implement approved climatology, anomaly, percentile, and data-quality methods | **In progress** — the 2003–2022 climatology baseline is built (`docs/PHASE_3_CLIMATOLOGY_REPORT.md`): 19,508 historical daily lake-averages, every day-of-year × stream cell has `n ≥ 100` (the sample gate never binds), median vs mean diverges ~0.6 °C at night on ~60 % of the year. Remaining: wire the daily-anomaly-record + monthly Earth Engine modes (Python logic done), then `ARCH-001` |
-| 4 | Build approved basin comparisons and daily/monthly interface outputs | **Not started** |
+| 3 | Implement approved climatology, anomaly, percentile, and data-quality methods | **Substantially complete** — the 2003–2022 climatology baseline (`docs/PHASE_3_CLIMATOLOGY_REPORT.md`), the daily anomaly records 2023 → 2026-09 (3,608 records), and the monthly summaries (`docs/PHASE_3_MONITORING_RESULTS_REPORT.md`) are built. Output is coherent: 2024 is the warmest year in every stream (+0.9 to +1.4 °C), Feb 2024 nights +5.1 °C, and the `low`-coverage confidence flag correctly isolates 1–5-pixel cloud artefacts from real anomalies. Remaining: `ARCH-001` (storage/refresh/serve) |
+| 4 | Build approved basin comparisons and daily/monthly interface outputs | **Not started** — next after `ARCH-001`; lake-wide only (basins deferred, `SPACE-001`) |
 | 5 | Validate formulas, sensor separation, clouds, coverage, shoreline pixels, consistency, reproducibility | **Not started** (only prototype-level engineering validation so far) |
 | 6 | Finalize application, documented code, user guidance, technical report, and presentation | **Not started** |
 
@@ -63,7 +63,7 @@ Only `PROTO`/`AUDIT` engineering decisions have been approved beyond the origina
 
 - **Version control:** the AUDIT-012 + QA-002 work is committed (`6060ecc`). The three governance commits plus that one are the repo history; all other prototype/audit code (`src/`, the AUDIT-010/011 and prototype tools) and their docs are still uncommitted.
 - **Supervisor consultation (2026-09):** held. The supervisor gave **no specific methodological recommendation** and confirmed **no authoritative Hungarian lake/basin boundary** is available. Decisions are therefore taken directly from the diagnostic evidence. Outcomes: `SPACE-001` lake-wide geometry approved (the WISE `HUAIH049` whole-lake polygon; basins deferred); `QA-002` nighttime acceptance rule approved (candidate C).
-- **Next step:** wire the daily-anomaly-record Earth Engine mode (compute the accepted lake value for each monitoring date 2023 → present and combine with the baseline) and the monthly-summary mode (Python only), run them, then `ARCH-001` (storage/refresh/serving + `AUDIT-003` re-verification once EEA recovers) and Phase 4 (interface). ERA5-Land is the first extension after the MVP core; Landsat second.
+- **Next step:** `ARCH-001` — decide how the baseline and the daily/monthly outputs are stored (small local tables? a GEE asset?), refreshed (append new monitoring days monthly), and served, plus the `AUDIT-003` geometry re-verification once the EEA endpoint recovers. Then Phase 4 (the app: daily view + monthly view + map). `VAL-001` runs alongside — cross-stream consistency, `low`-coverage handling, comparison with the published European temperature record. ERA5-Land is the first extension after the MVP core; Landsat second.
 
 ## 6. One-paragraph summary
 

@@ -616,6 +616,145 @@ def build_climatology(project: str) -> int:
     return 0
 
 
+MONITORING_START_YEAR = 2023
+
+
+def _load_baseline_artifact() -> dict[str, Any]:
+    path = STATE_DIR / "climatology_baseline.json"
+    if not path.exists():
+        raise EngineFailure("CLIMATOLOGY_BASELINE_ARTIFACT_MISSING")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    errors = validate_baseline(payload)
+    if errors:
+        raise EngineFailure("CLIMATOLOGY_BASELINE_ARTIFACT_INVALID:" + errors[0])
+    return payload
+
+
+def assemble_daily_records(daily_values: list[dict[str, Any]], baseline_rows: list[dict[str, Any]],
+                           eligible_counts: dict[str, int]) -> list[dict[str, Any]]:
+    index = {(r["stream_id"], r["day_of_year"]): r for r in baseline_rows}
+    records: list[dict[str, Any]] = []
+    for value in sorted(daily_values,
+                        key=lambda v: (STREAM_IDS.index(v["stream_id"]), v["date_utc"])):
+        date = dt.date.fromisoformat(value["date_utc"])
+        doy = fold_day_of_year(date.month, date.day)
+        baseline_row = index[(value["stream_id"], doy)]
+        eligible = eligible_counts[value["stream_id"]]
+        fraction = value["accepted_pixel_count"] / eligible if eligible else 0.0
+        records.append(anomaly_record({
+            "stream_id": value["stream_id"], "date_utc": value["date_utc"],
+            "daily_lst_c": value["daily_lst_c"],
+            "valid_water_fraction": fraction,
+            "accepted_pixel_count": value["accepted_pixel_count"],
+            "eligible_pixel_count": eligible,
+        }, baseline_row))
+    return records
+
+
+def validate_daily_records(records: list[dict[str, Any]]) -> list[str]:
+    errors: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for record in records:
+        key = (record.get("stream_id"), record.get("date_utc"))
+        if record.get("stream_id") not in STREAM_IDS or key in seen:
+            errors.append("DAILY_RECORD_KEY_FAILED")
+            break
+        seen.add(key)
+        year = int(record["date_utc"][:4])
+        if year < MONITORING_START_YEAR:
+            errors.append("DAILY_RECORD_BEFORE_MONITORING_PERIOD")
+            break
+        confidence = record.get("confidence")
+        if confidence not in ("ok", "low", "none"):
+            errors.append("DAILY_RECORD_CONFIDENCE_FAILED")
+            break
+        if confidence != "none":
+            if record.get("daily_lst_c") is None or \
+               not -60.0 <= record["daily_lst_c"] <= 60.0:
+                errors.append("DAILY_RECORD_LST_RANGE_FAILED")
+                break
+            pct = record.get("historical_percentile")
+            if pct is not None and not 0.0 <= pct <= 100.0:
+                errors.append("DAILY_RECORD_PERCENTILE_RANGE_FAILED")
+                break
+            if record["anomaly_vs_median_c"] is not None and \
+               abs(round(record["daily_lst_c"] - record["reference_median_lst_c"], 4)
+                   - record["anomaly_vs_median_c"]) > 1e-6:
+                errors.append("DAILY_RECORD_ANOMALY_IDENTITY_FAILED")
+                break
+    return errors
+
+
+def _monthly_summary_stats(records: list[dict[str, Any]]) -> dict[str, Any]:
+    reported = [r for r in records if r.get("state") == "reported"]
+    warm = sum(r["warm_observation_count"] for r in reported)
+    return {
+        "month_row_count": len(records),
+        "reported_month_rows": len(reported),
+        "insufficient_month_rows": sum(1 for r in records
+                                       if r.get("state") == "insufficient valid observations"),
+        "total_warm_observation_days": warm,
+    }
+
+
+def build_daily_records(project: str) -> int:
+    ee, audit010, runner, _gj, context = _init_ee(project)
+    identity = _geometry_identity(context["source_record"])
+    baseline_payload = _load_baseline_artifact()
+    baseline_rows = baseline_payload["rows"]
+    eligible = baseline_payload["eligible_pixel_counts"]
+    monitoring_years = list(range(MONITORING_START_YEAR, dt.date.today().year + 1))
+    print(json.dumps({"ANOMALY_ENGINE_PREFLIGHT": {
+        "mode": "daily_records", "specification": SPECIFICATION, "implementation": IMPLEMENTATION,
+        "pinned_audit010_sha256": EXPECTED_AUDIT010_SHA256,
+        "baseline_rows_sha256": baseline_payload["rows_sha256"],
+        "monitoring_years": [monitoring_years[0], monitoring_years[-1]],
+        "geometry_identity_sha256": identity, "reads_coordinates": False}},
+        sort_keys=True), flush=True)
+
+    daily_values = _collect_daily_values(context, monitoring_years)
+    daily_values = [v for v in daily_values if int(v["date_utc"][:4]) >= MONITORING_START_YEAR]
+    records = assemble_daily_records(daily_values, baseline_rows, eligible)
+    record_errors = validate_daily_records(records)
+    if record_errors:
+        raise EngineFailure("DAILY_RECORDS_ADMISSION_FAILED:" + record_errors[0])
+    monthly = assemble_monthly(records)
+
+    daily_payload = {
+        "artifact": "daily_anomaly_records", "specification": SPECIFICATION,
+        "implementation": IMPLEMENTATION, "coordinate_free": True, "reads_coordinates": False,
+        "geometry_identity_sha256": identity, "method_parameters": _method_parameters(),
+        "baseline_rows_sha256": baseline_payload["rows_sha256"],
+        "monitoring_period": [f"{MONITORING_START_YEAR}-01-01", dt.date.today().isoformat()],
+        "record_count": len(records), "records": records,
+        "records_sha256": canonical_sha256(records),
+    }
+    monthly_payload = {
+        "artifact": "monthly_summaries", "specification": SPECIFICATION,
+        "implementation": IMPLEMENTATION, "coordinate_free": True, "reads_coordinates": False,
+        "geometry_identity_sha256": identity, "method_parameters": _method_parameters(),
+        "daily_anomaly_records_sha256": daily_payload["records_sha256"],
+        "row_count": len(monthly), "rows": monthly, "rows_sha256": canonical_sha256(monthly),
+    }
+    _write_artifact("daily_anomaly_records", daily_payload)
+    _write_artifact("monthly_summaries", monthly_payload)
+
+    observed_by_stream = {s: sum(1 for r in records if r["stream_id"] == s
+                                 and r["confidence"] != "none") for s in STREAM_IDS}
+    print(json.dumps({"ANOMALY_ENGINE_DAILY_RECORDS_COMPLETE": {
+        "specification": SPECIFICATION, "implementation": IMPLEMENTATION,
+        "coordinate_free": True, "reads_coordinates": False,
+        "monitoring_period": daily_payload["monitoring_period"],
+        "daily_record_count": len(records),
+        "observed_days_by_stream": observed_by_stream,
+        "daily_records_sha256": daily_payload["records_sha256"],
+        "monthly_summary": _monthly_summary_stats(monthly),
+        "monthly_rows_sha256": monthly_payload["rows_sha256"],
+        "pass": not record_errors,
+    }}, sort_keys=True, separators=(",", ":")), flush=True)
+    return 0
+
+
 def _baseline_coverage_summary(baseline: list[dict[str, Any]]) -> dict[str, Any]:
     summary: dict[str, Any] = {}
     for stream_id in STREAM_IDS:
@@ -811,6 +950,30 @@ def self_test() -> int:
     if next(r for r in short_month)["state"] != "insufficient valid observations":
         failures.append("assemble_monthly_short")
 
+    # assemble_daily_records + validate_daily_records against the full-year baseline
+    dv = [
+        {"stream_id": "terra_night", "date_utc": "2024-01-15",
+         "daily_lst_c": jan15["median_lst_c"] + 3.0, "accepted_pixel_count": 210},
+        {"stream_id": "terra_day", "date_utc": "2024-07-15",
+         "daily_lst_c": midyear["median_lst_c"] - 1.0, "accepted_pixel_count": 90},
+    ]
+    drecs = assemble_daily_records(dv, baseline, {s: 700 for s in STREAM_IDS})
+    if len(drecs) != 2 or validate_daily_records(drecs):
+        failures.append("assemble_daily_records:" + str(validate_daily_records(drecs)))
+    warm_rec = next(r for r in drecs if r["stream_id"] == "terra_night")
+    if warm_rec["anomaly_vs_median_c"] <= 0 or warm_rec["historical_percentile"] is None or \
+       warm_rec["percentile_confidence"] != "full" or \
+       warm_rec["valid_water_fraction"] != round(210 / 700, 4):
+        failures.append("daily_record_warm_fields:" + json.dumps(warm_rec))
+    bad_dr = json.loads(json.dumps(drecs))
+    bad_dr[0]["date_utc"] = "2019-01-15"
+    if "DAILY_RECORD_BEFORE_MONITORING_PERIOD" not in validate_daily_records(bad_dr):
+        failures.append("daily_record_period_negative")
+    bad_dr2 = json.loads(json.dumps(drecs))
+    bad_dr2[0]["anomaly_vs_median_c"] = 99.0
+    if "DAILY_RECORD_ANOMALY_IDENTITY_FAILED" not in validate_daily_records(bad_dr2):
+        failures.append("daily_record_identity_negative")
+
     for bad_key in ("latitude", "geometry_coordinates", "bbox"):
         try:
             validate_coordinate_free({bad_key: 1})
@@ -832,6 +995,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project")
     parser.add_argument("--build-climatology", action="store_true")
+    parser.add_argument("--daily-records", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -841,7 +1005,9 @@ def main() -> int:
     try:
         if args.build_climatology:
             return build_climatology(args.project)
-        parser.error("choose a mode: --build-climatology")
+        if args.daily_records:
+            return build_daily_records(args.project)
+        parser.error("choose a mode: --build-climatology or --daily-records")
         return 2
     except EngineFailure as exc:
         print(json.dumps({"ANOMALY_ENGINE_FAILED": {
