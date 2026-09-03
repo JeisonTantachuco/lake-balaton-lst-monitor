@@ -15,7 +15,7 @@ Every material scientific or scope decision is gated on explicit user approval a
 |---|-------|--------|
 | 1 | Audit and reproduce the prior study, application, shared code, and data behavior | **Done** — Phase 1 scientific and technical audit complete; it underpins every later specification |
 | 2 | Establish approved Terra/Aqua MODIS and Landsat 8/9 preprocessing and QA | **MODIS side complete** (four diagnostics + `AUDIT-013`; `SPACE-001`, `QA-002`, `METH-001`…`006` approved 2026-09). Landsat and ERA5-Land preprocessing not started (scoped as extensions — see `SCOPE-003`) |
-| 3 | Implement approved climatology, anomaly, percentile, and data-quality methods | **In progress** — anomaly-engine runner + supervisor implemented and self-tested (`tools/run_anomaly_engine_ee.py` / `…supervise_anomaly_engine.py`, spec `docs/PHASE_3_ANOMALY_ENGINE_SPECIFICATION.md`). The one-time 2003–2022 climatology build is queued, waiting on a transient EEA provenance-server 503 |
+| 3 | Implement approved climatology, anomaly, percentile, and data-quality methods | **In progress** — the 2003–2022 climatology baseline is built (`docs/PHASE_3_CLIMATOLOGY_REPORT.md`): 19,508 historical daily lake-averages, every day-of-year × stream cell has `n ≥ 100` (the sample gate never binds), median vs mean diverges ~0.6 °C at night on ~60 % of the year. Remaining: wire the daily-anomaly-record + monthly Earth Engine modes (Python logic done), then `ARCH-001` |
 | 4 | Build approved basin comparisons and daily/monthly interface outputs | **Not started** |
 | 5 | Validate formulas, sensor separation, clouds, coverage, shoreline pixels, consistency, reproducibility | **Not started** (only prototype-level engineering validation so far) |
 | 6 | Finalize application, documented code, user guidance, technical report, and presentation | **Not started** |
@@ -63,7 +63,7 @@ Only `PROTO`/`AUDIT` engineering decisions have been approved beyond the origina
 
 - **Version control:** the AUDIT-012 + QA-002 work is committed (`6060ecc`). The three governance commits plus that one are the repo history; all other prototype/audit code (`src/`, the AUDIT-010/011 and prototype tools) and their docs are still uncommitted.
 - **Supervisor consultation (2026-09):** held. The supervisor gave **no specific methodological recommendation** and confirmed **no authoritative Hungarian lake/basin boundary** is available. Decisions are therefore taken directly from the diagnostic evidence. Outcomes: `SPACE-001` lake-wide geometry approved (the WISE `HUAIH049` whole-lake polygon; basins deferred); `QA-002` nighttime acceptance rule approved (candidate C).
-- **Next step:** run the queued climatology build once the EEA provenance endpoint recovers (~40 min), review the baseline coverage summary, then add the daily-record and monthly modes to the anomaly engine (light — they read the baseline). Then `ARCH-001` (precomputation + deployment) and Phase 4 (interface). ERA5-Land is the first extension after the MVP core; Landsat second.
+- **Next step:** wire the daily-anomaly-record Earth Engine mode (compute the accepted lake value for each monitoring date 2023 → present and combine with the baseline) and the monthly-summary mode (Python only), run them, then `ARCH-001` (storage/refresh/serving + `AUDIT-003` re-verification once EEA recovers) and Phase 4 (interface). ERA5-Land is the first extension after the MVP core; Landsat second.
 
 ## 6. One-paragraph summary
 
