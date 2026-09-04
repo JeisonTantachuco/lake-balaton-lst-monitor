@@ -142,9 +142,36 @@ ui.root.add(mapPanel);
 var outlineLayer = mapPanel.addLayer(
   ee.Image().byte().paint(LAKE_GEOM, 1, 2), {palette: ['#111111']}, 'Lake outline');
 var pixelLayer = null;
-function setPixelLayer(image, name) {
+function setPixelLayer(image, name, visParams) {
   if (pixelLayer) { mapPanel.layers().remove(pixelLayer); pixelLayer = null; }
-  if (image) { pixelLayer = mapPanel.addLayer(image, LST_VIS, name); }
+  if (image) { pixelLayer = mapPanel.addLayer(image, visParams || LST_VIS, name); }
+}
+
+/**
+ * Reads the min/max of the accepted lake pixels for the image just shown, so the
+ * legend bar can be cropped to that window (see legendRampImage/updateLegend
+ * below). The map layer itself always uses the fixed LST_VIS (-5..32 °C) colour
+ * stretch — never this range — so a given temperature always renders as the same
+ * colour and different days/months stay visually comparable. If the map were
+ * rescaled to each image's own min/max instead, a mild day (say -2 to 13 °C)
+ * would get stretched across the full blue-to-red range and look just as extreme
+ * as a genuinely hot day reaching 32 °C, which is misleading.
+ */
+function computeLstRange(lstImage, callback) {
+  lstImage.reduceRegion({
+    reducer: ee.Reducer.minMax(),
+    geometry: LAKE_GEOM,
+    scale: 1000,
+    maxPixels: 1e9,
+    bestEffort: true
+  }).evaluate(function (s) {
+    if (!s || s.lst_c_min === null || s.lst_c_min === undefined
+        || s.lst_c_max === null || s.lst_c_max === undefined) {
+      callback(null);
+      return;
+    }
+    callback({min: s.lst_c_min, max: s.lst_c_max});
+  });
 }
 
 /* -- header -- */
@@ -365,9 +392,10 @@ function drawDailyMap(streamId, dstr) {
   var start = ee.Date(dstr);
   var col = ee.ImageCollection(s.col).filterDate(start, start.advance(1, 'day'));
   col.size().evaluate(function (n) {
-    if (!n) { setPixelLayer(null); return; }
+    if (!n) { setPixelLayer(null); updateLegend(null); return; }
     var lstC = acceptedLstC(ee.Image(col.first()), s).clip(LAKE_GEOM);
-    setPixelLayer(lstC, s.short + ' — ' + dstr);
+    setPixelLayer(lstC, s.short + ' — ' + dstr);   // fixed LST_VIS colour scale
+    computeLstRange(lstC, updateLegend);           // informational range only
   });
 }
 
@@ -496,14 +524,15 @@ function fillMonthlyReadout(streamId, monthName, p) {
 
 function drawMonthlyMap(streamId, p) {
   var d = p && p.hottest_observation_date;
-  if (!d) { setPixelLayer(null); return; }
+  if (!d) { setPixelLayer(null); updateLegend(null); return; }
   var s = STREAMS[streamId];
   var start = ee.Date(d);
   var col = ee.ImageCollection(s.col).filterDate(start, start.advance(1, 'day'));
   col.size().evaluate(function (m) {
-    if (!m) { setPixelLayer(null); return; }
+    if (!m) { setPixelLayer(null); updateLegend(null); return; }
     var lstC = acceptedLstC(ee.Image(col.first()), s).clip(LAKE_GEOM);
-    setPixelLayer(lstC, s.short + ' — warmest day ' + d);
+    setPixelLayer(lstC, s.short + ' — warmest day ' + d);   // fixed LST_VIS colour scale
+    computeLstRange(lstC, updateLegend);                    // informational range only
   });
 }
 
@@ -633,22 +662,54 @@ function drawMonthlySeriesChart(target, rows, title, highlightMonth) {
 
 /* ------------------------------------------------------------------- legend */
 
-var legend = ui.Panel({style: {position: 'bottom-left', padding: '6px 8px'}});
+// Builds the legend bar image for the window [lo, hi] °C, but always colours it
+// using the FIXED -5..32 stretch (LST_VIS.min/max) — so the bar shows exactly the
+// slice of the true colour ramp that this window occupies, not a rescaled copy of
+// the whole ramp. A view of 5-10 °C, for instance, sits near the pale middle of
+// the -5..32 ramp, so its legend bar should look pale, not fully blue-to-red.
+function legendRampImage(lo, hi) {
+  return ee.Image.pixelLonLat().select('longitude')
+    .multiply((hi - lo) / 100).add(lo)
+    .visualize({min: LST_VIS.min, max: LST_VIS.max, palette: LST_VIS.palette});
+}
+
+// A fixed pixel width shared by the bar and every row under it, so a long caption
+// wraps onto a second line instead of forcing the panel (and the gap after the
+// ramp image) wider than the ramp itself — that mismatch was why the bar looked
+// like it stopped short of the "max" label instead of reaching it.
+var LEGEND_WIDTH = '140px';
+
+var legend = ui.Panel({style: {position: 'bottom-left', padding: '6px 8px', width: '156px'}});
 legend.add(ui.Label('Lake-surface temperature (°C)',
   {fontWeight: 'bold', fontSize: '10px', margin: '0 0 3px 0'}));
-var bar = ui.Thumbnail({
-  image: ee.Image.pixelLonLat().select('longitude')
-    .multiply((LST_VIS.max - LST_VIS.min) / 100).add(LST_VIS.min)
-    .visualize({min: LST_VIS.min, max: LST_VIS.max, palette: LST_VIS.palette}),
+var legendBar = ui.Thumbnail({
+  image: legendRampImage(LST_VIS.min, LST_VIS.max),
   params: {bbox: [0, 0, 100, 8], dimensions: '140x12'},
-  style: {margin: '0', padding: '0'}
+  style: {margin: '0', padding: '0', width: LEGEND_WIDTH, height: '12px'}
 });
-legend.add(bar);
-var scaleRow = ui.Panel({layout: ui.Panel.Layout.flow('horizontal')});
-scaleRow.add(ui.Label(String(LST_VIS.min) + '°', {fontSize: '9px', stretch: 'horizontal', margin: '0'}));
-scaleRow.add(ui.Label(String(LST_VIS.max) + '°', {fontSize: '9px', margin: '0'}));
+legend.add(legendBar);
+var legendMinLabel = ui.Label(fmt(LST_VIS.min) + '°', {fontSize: '9px', stretch: 'horizontal', margin: '0'});
+var legendMaxLabel = ui.Label(fmt(LST_VIS.max) + '°', {fontSize: '9px', margin: '0'});
+var scaleRow = ui.Panel({
+  layout: ui.Panel.Layout.flow('horizontal'), style: {width: LEGEND_WIDTH, margin: '0'}});
+scaleRow.add(legendMinLabel);
+scaleRow.add(legendMaxLabel);
 legend.add(scaleRow);
+legend.add(ui.Label('this view\'s own range',
+  {fontSize: '9px', color: '#999', margin: '2px 0 0 0', width: LEGEND_WIDTH}));
 mapPanel.add(legend);
+
+// Called after every map layer redraw with that layer's actual min/max. The map
+// itself always uses the fixed LST_VIS colour stretch (untouched here); this only
+// re-crops the legend bar to the window that's actually on screen right now, and
+// relabels its endpoints to match — the bar's colours stay absolute throughout.
+function updateLegend(range) {
+  var lo = range ? range.min : LST_VIS.min;
+  var hi = range ? range.max : LST_VIS.max;
+  legendBar.setImage(legendRampImage(lo, hi));
+  legendMinLabel.setValue(range ? fmt(lo) + '°' : '–');
+  legendMaxLabel.setValue(range ? fmt(hi) + '°' : '–');
+}
 
 /* --------------------------------------------------------------- wiring up */
 
