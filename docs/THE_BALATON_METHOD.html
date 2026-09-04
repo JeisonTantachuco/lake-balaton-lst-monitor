@@ -1,0 +1,566 @@
+<!--
+  Static snapshot of the published reading version of docs/PROJECT_DECISIONS_EXPLAINED.md.
+  Open this file directly in a browser to read it, or view the live hosted copy at:
+  https://claude.ai/code/artifact/9d896317-35b0-4bdb-b6e0-d1860af9ff4d
+  The .md file next to this one is the git-tracked source of record; this file will not
+  auto-update if that one changes.
+-->
+<title>The Balaton Method</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,450;9..144,560;9..144,650&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
+  :root{
+    --ink:#141a1f;
+    --ink-soft:#3a454d;
+    --muted:#5b6b73;
+    --paper:#eef2f2;
+    --surface:#ffffff;
+    --surface-2:#e4eaea;
+    --line:#d5dedf;
+    --cold:#2166ac;
+    --cold-soft:#e4edf6;
+    --warm:#b2182b;
+    --warm-soft:#f8e7e6;
+    --focus:#0f6e78;
+    --shadow: 0 1px 2px rgba(20,26,31,.04), 0 8px 24px rgba(20,26,31,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ink:#eef2f2;
+      --ink-soft:#c7d2d5;
+      --muted:#93a3a9;
+      --paper:#12171a;
+      --surface:#1a2126;
+      --surface-2:#212a2f;
+      --line:#2c363b;
+      --cold:#6fa8d8;
+      --cold-soft:#1c2b38;
+      --warm:#e07a80;
+      --warm-soft:#33201f;
+      --focus:#5fc2cc;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#eef2f2;
+    --ink-soft:#c7d2d5;
+    --muted:#93a3a9;
+    --paper:#12171a;
+    --surface:#1a2126;
+    --surface-2:#212a2f;
+    --line:#2c363b;
+    --cold:#6fa8d8;
+    --cold-soft:#1c2b38;
+    --warm:#e07a80;
+    --warm-soft:#33201f;
+    --focus:#5fc2cc;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Public Sans', system-ui, -apple-system, sans-serif;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{
+    font-family:'Fraunces', Georgia, 'Times New Roman', serif;
+    color:var(--ink);
+    text-wrap:balance;
+    margin:0;
+  }
+  a{color:var(--focus);}
+  a:focus-visible, button:focus-visible, summary:focus-visible{
+    outline:2px solid var(--focus); outline-offset:3px; border-radius:2px;
+  }
+  code, .mono{
+    font-family:'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  }
+  .tnum{ font-variant-numeric: tabular-nums; }
+
+  .page{
+    display:grid;
+    grid-template-columns: 240px minmax(0,1fr);
+    gap:0 48px;
+    max-width:1180px;
+    margin:0 auto;
+    padding:40px 24px 96px;
+  }
+  @media (max-width: 900px){
+    .page{ grid-template-columns: 1fr; }
+    .toc{ display:none; }
+  }
+
+  /* ---- TOC ---- */
+  .toc{
+    position:sticky; top:32px; align-self:start;
+    max-height:calc(100vh - 64px);
+    overflow-y:auto;
+    padding-right:8px;
+  }
+  .toc-title{
+    font-family:'IBM Plex Mono'; font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 10px;
+  }
+  .toc ol{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+  .toc a{
+    display:flex; gap:8px; align-items:baseline;
+    padding:6px 8px; border-radius:6px;
+    color:var(--ink-soft); text-decoration:none; font-size:13.5px;
+    transition:background .12s ease, color .12s ease;
+  }
+  .toc a .n{ font-family:'IBM Plex Mono'; font-size:11px; color:var(--muted); min-width:1.4em; }
+  .toc a:hover{ background:var(--surface-2); color:var(--ink); }
+  .toc a.active{ background:var(--cold-soft); color:var(--cold); font-weight:600; }
+  .toc a.active .n{ color:var(--cold); }
+
+  /* ---- Hero ---- */
+  .hero{ padding-bottom:36px; border-bottom:1px solid var(--line); margin-bottom:40px; }
+  .eyebrow{
+    font-family:'IBM Plex Mono'; font-size:11.5px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 14px;
+  }
+  h1{ font-size:clamp(34px,5vw,50px); font-weight:650; letter-spacing:-.01em; }
+  .dek{
+    max-width:62ch; color:var(--ink-soft); font-size:17px; margin:16px 0 28px;
+  }
+  .ramp-strip{
+    height:10px; border-radius:999px; margin-bottom:22px;
+    background:linear-gradient(90deg,#2166ac,#67a9cf,#d1e5f0,#fddbc7,#ef8a62,#b2182b);
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,.06);
+  }
+  .glance{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:1px;
+    background:var(--line); border:1px solid var(--line); border-radius:12px;
+    overflow:hidden;
+  }
+  @media (max-width:640px){ .glance{ grid-template-columns:repeat(2,1fr);} }
+  .glance div{ background:var(--surface); padding:16px 18px; }
+  .glance .fig{ font-family:'Fraunces'; font-weight:560; font-size:22px; }
+  .glance .lbl{ color:var(--muted); font-size:12.5px; margin-top:4px; }
+
+  /* ---- Sections ---- */
+  section.doc{ margin:0 0 52px; scroll-margin-top:24px; }
+  .section-head{ display:flex; align-items:baseline; gap:14px; margin-bottom:6px; }
+  .section-head .num{
+    font-family:'IBM Plex Mono'; color:var(--cold); font-size:14px; font-weight:600;
+  }
+  section.doc h2{ font-size:26px; font-weight:600; }
+  .chips{ display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 20px; }
+  .chip{
+    font-family:'IBM Plex Mono'; font-size:11px; letter-spacing:.02em;
+    color:var(--muted); border:1px solid var(--line); border-radius:999px;
+    padding:3px 9px; background:var(--surface);
+  }
+  section.doc p{ max-width:68ch; margin:0 0 16px; color:var(--ink-soft); }
+  section.doc p.lead{ color:var(--ink); font-size:17px; }
+  section.doc strong{ color:var(--ink); }
+  section.doc ul{ max-width:66ch; margin:0 0 16px; padding-left:1.2em; color:var(--ink-soft); }
+  section.doc li{ margin-bottom:8px; }
+  .callout{
+    max-width:68ch; background:var(--surface); border:1px solid var(--line); border-radius:12px;
+    padding:16px 20px; margin:0 0 20px; box-shadow:var(--shadow);
+  }
+  .callout .k{
+    font-family:'IBM Plex Mono'; font-size:11px; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--focus); margin-bottom:6px; display:block;
+  }
+  .callout p{ margin:0; color:var(--ink-soft); }
+
+  .eq{
+    max-width:68ch; display:flex; flex-direction:column; gap:8px;
+    background:var(--cold-soft); border:1px solid var(--line); border-left:4px solid var(--cold);
+    border-radius:10px; padding:18px 22px; margin:0 0 22px;
+  }
+  .eq .formula{ font-family:'IBM Plex Mono'; font-size:16px; color:var(--ink); }
+  .eq .note{ font-size:13.5px; color:var(--ink-soft); }
+  .eq .note b.pos{ color:var(--warm); }
+  .eq .note b.neg{ color:var(--cold); }
+
+  table.compare{
+    width:100%; max-width:68ch; border-collapse:collapse; margin:6px 0 24px;
+    font-size:14px; background:var(--surface); border:1px solid var(--line); border-radius:10px;
+    overflow:hidden;
+  }
+  table.compare th, table.compare td{
+    padding:10px 14px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top;
+  }
+  table.compare thead th{
+    font-family:'IBM Plex Mono'; font-size:11.5px; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--muted); font-weight:600; background:var(--surface-2);
+  }
+  table.compare thead th.chosen{ color:var(--cold); background:var(--cold-soft); }
+  table.compare td.chosen{ background:var(--cold-soft); font-weight:600; }
+  table.compare tbody th{ font-weight:500; color:var(--ink-soft); width:38%; }
+  table.compare tr:last-child td, table.compare tr:last-child th{ border-bottom:none; }
+
+  .labels-row{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 20px; max-width:68ch; }
+  .pill{
+    font-size:13px; padding:6px 12px; border-radius:999px; border:1px solid var(--line);
+    background:var(--surface); color:var(--ink-soft);
+  }
+  .pill.p1{ border-color:var(--cold); color:var(--cold); }
+  .pill.p5{ border-color:var(--warm); color:var(--warm); }
+
+  .stream-grid{
+    display:grid; grid-template-columns:repeat(2,1fr); gap:1px;
+    background:var(--line); border:1px solid var(--line); border-radius:10px; overflow:hidden;
+    max-width:68ch; margin:0 0 22px;
+  }
+  @media (max-width:520px){ .stream-grid{ grid-template-columns:1fr; } }
+  .stream-grid div{ background:var(--surface); padding:14px 16px; }
+  .stream-grid .who{ font-weight:600; font-size:14px; }
+  .stream-grid .when{ font-family:'IBM Plex Mono'; font-size:12px; color:var(--muted); margin-top:2px;}
+
+  dl.glossary{ max-width:68ch; margin:0; }
+  dl.glossary dt{
+    font-family:'Fraunces'; font-weight:560; font-size:16px; color:var(--ink); margin-top:18px;
+  }
+  dl.glossary dd{ margin:4px 0 0; color:var(--ink-soft); }
+
+  footer.doc{
+    max-width:68ch; margin-top:56px; padding-top:24px; border-top:1px solid var(--line);
+    color:var(--muted); font-size:13.5px;
+  }
+  footer.doc code{ background:var(--surface-2); padding:1px 6px; border-radius:4px; }
+
+  @media (prefers-reduced-motion: reduce){ html{ scroll-behavior:auto; } }
+</style>
+
+<div class="page">
+  <nav class="toc" aria-label="Table of contents">
+    <p class="toc-title">Contents</p>
+    <ol id="toc-list">
+      <li><a href="#s1"><span class="n">01</span>What this project is</a></li>
+      <li><a href="#s2"><span class="n">02</span>Where the numbers come from</a></li>
+      <li><a href="#s3"><span class="n">03</span>Defining &quot;normal&quot;</a></li>
+      <li><a href="#s4"><span class="n">04</span>Which readings to trust</a></li>
+      <li><a href="#s5"><span class="n">05</span>What counts as &quot;the lake&quot;</a></li>
+      <li><a href="#s6"><span class="n">06</span>Building one day's anomaly</a></li>
+      <li><a href="#s7"><span class="n">07</span>Percentile &amp; label</a></li>
+      <li><a href="#s8"><span class="n">08</span>Why streams stay separate</a></li>
+      <li><a href="#s9"><span class="n">09</span>Monthly summaries</a></li>
+      <li><a href="#s10"><span class="n">10</span>The public app</a></li>
+      <li><a href="#s11"><span class="n">11</span>Open &amp; future work</a></li>
+      <li><a href="#s12"><span class="n">12</span>Glossary</a></li>
+      <li><a href="#s13"><span class="n">13</span>The formal record</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <p class="eyebrow">Lake Balaton thermal monitor — methodology record</p>
+      <h1>The Balaton Method</h1>
+      <p class="dek">Every choice behind the anomaly monitor — the historical window, the cloud filter,
+        the lake boundary, median vs. mean, the app itself — with the reasoning that made it the
+        right choice, not just the chosen one.</p>
+      <div class="ramp-strip" role="img" aria-label="The monitor's blue-to-red temperature scale, from cold to warm"></div>
+      <dl class="glance">
+        <div><div class="fig tnum">2003–2022</div><div class="lbl">fixed historical baseline, 20 years</div></div>
+        <div><div class="fig tnum">4</div><div class="lbl">satellite passes, never averaged together</div></div>
+        <div><div class="fig tnum">±5 days</div><div class="lbl">seasonal window behind every &quot;normal&quot;</div></div>
+        <div><div class="fig">1 polygon</div><div class="lbl">whole lake, no basins, no shoreline buffer</div></div>
+      </dl>
+    </header>
+
+    <section class="doc" id="s1">
+      <div class="section-head"><span class="num">01</span><h2>What this project actually is</h2></div>
+      <div class="chips"><span class="chip">SCI-001</span></div>
+      <p class="lead">The tool answers one question, every day, for Lake Balaton: <strong>is the water
+        surface unusually warm — or cold — right now, compared with what's normal for this exact
+        time of year?</strong></p>
+      <p>That question drives almost every decision below, because answering it honestly means being
+        careful about three things: what &quot;normal&quot; means, what counts as a trustworthy
+        measurement, and how to say &quot;warmer than normal&quot; without hiding uncertainty or
+        overselling the result.</p>
+    </section>
+
+    <section class="doc" id="s2">
+      <div class="section-head"><span class="num">02</span><h2>Where the numbers come from</h2></div>
+      <div class="chips"><span class="chip">DATA-001</span><span class="chip">DATA-002</span><span class="chip">DATA-003</span><span class="chip">DATA-004</span></div>
+      <p>Two NASA satellites carrying the MODIS instrument give a long, twice-daily record of the
+        lake's actual surface temperature. Each pass is kept as its own separate stream:</p>
+      <div class="stream-grid">
+        <div><div class="who">Terra — morning</div><div class="when">~10:00 local</div></div>
+        <div><div class="who">Aqua — afternoon</div><div class="when">~13:00 local</div></div>
+        <div><div class="who">Terra — night</div><div class="when">~22:00 local</div></div>
+        <div><div class="who">Aqua — after midnight</div><div class="when">~01:00 local</div></div>
+      </div>
+      <p>A lake heats through the day and cools at night — mixing &quot;how warm at 1 pm&quot; with
+        &quot;how warm at 1 am&quot; into one number would hide the real signal, not reveal it
+        (more on this in §08).</p>
+      <p>Three more sources are approved for later, not yet built into the app: <strong>Landsat</strong>
+        (sharper, 30 m images, for zooming into a specific hot day), <strong>ERA5-Land</strong>
+        reanalysis (air temperature, wind, sunlight, as context — never a replacement for the satellite
+        reading), and any <strong>field measurements</strong>, used only as an optional cross-check,
+        since a thermometer in the water measures something subtly different from what a satellite
+        sees from orbit.</p>
+    </section>
+
+    <section class="doc" id="s3">
+      <div class="section-head"><span class="num">03</span><h2>Defining &quot;normal&quot;</h2></div>
+      <div class="chips"><span class="chip">TIME-001</span></div>
+      <p class="lead">One &quot;normal&quot; is worked out <strong>once</strong>, from
+        <strong>1 Jan 2003 through 31 Dec 2022</strong> — and it never changes. Every day from 2023
+        onward, including today, is measured against that exact same, frozen reference. A fixed
+        ruler, not one redrawn every year.</p>
+      <p>2003 is the first full calendar year where both Terra and Aqua were already flying, so it's
+        the earliest point where all four streams have a complete, comparable record.</p>
+      <p>Two other designs were seriously considered — a baseline that keeps <em>growing</em>
+        (2026 measured against 2003–2025), and one that <em>rolls</em> forward, always the trailing
+        20 years (2026 against 2006–2025). Here's why the fixed baseline wins on the question this
+        project is actually asking:</p>
+      <table class="compare">
+        <thead>
+          <tr><th scope="col"></th><th scope="col" class="chosen">Fixed 2003–2022</th><th scope="col">Growing baseline</th><th scope="col">Rolling 20&#8209;yr window</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Same reference every year</th><td class="chosen">Yes</td><td>No — grows yearly</td><td>No — slides yearly</td></tr>
+          <tr><th scope="row">Recent warm years can't quietly raise &quot;normal&quot;</th><td class="chosen">Yes</td><td>No</td><td>No</td></tr>
+          <tr><th scope="row">A real warming trend stays visible</th><td class="chosen">Yes</td><td>Partly hidden</td><td>Partly hidden</td></tr>
+          <tr><th scope="row">Matches WMO climate-normal practice</th><td class="chosen">Yes</td><td>No</td><td>Partly</td></tr>
+        </tbody>
+      </table>
+      <p>The failure mode both alternatives share has a name in climate science: <strong>shifting
+        baseline</strong> — a reference that keeps updating with recent, already-changed conditions
+        gradually hides the very change you're trying to measure. 2024 turned out to be the warmest
+        year on record for every satellite pass; folding it into the next year's &quot;normal&quot;
+        would use that heat to quietly raise the bar for what counts as warm. A growing baseline also
+        breaks a second thing: 2023 would be judged against 20 years of history, 2026 against 23 —
+        different rulers, so you could no longer honestly say which year was <em>more</em> anomalous.</p>
+      <div class="callout">
+        <span class="k">Why this is standard, not just a preference</span>
+        <p>Meteorological agencies define &quot;climate normals&quot; the same way — the WMO uses
+          fixed 30-year windows, redefined only once per decade, never year to year. If this baseline
+          is ever updated, the right way is a deliberate, periodic redefinition — not a yearly creep.</p>
+      </div>
+    </section>
+
+    <section class="doc" id="s4">
+      <div class="section-head"><span class="num">04</span><h2>Deciding which readings to trust</h2></div>
+      <div class="chips"><span class="chip">QA-002</span><span class="chip">AUDIT-011</span><span class="chip">AUDIT-012</span></div>
+      <p>Every MODIS pixel ships with quality flags. The strictest possible reading of those flags is
+        the textbook-safe choice — but it turned out to be unworkable for this lake.</p>
+      <div class="callout">
+        <span class="k">What was measured before deciding anything</span>
+        <p>Under the strictest rule, Lake Balaton has <strong>0% usable nighttime coverage</strong> —
+          every night, across a full year of test dates. Loosening the rule to allow a documented,
+          bounded error margin (up to about ±2 °C of built-in uncertainty) recovers
+          <strong>~99% nighttime coverage</strong>, almost entirely from one well-understood quality
+          code.</p>
+      </div>
+      <p>So the accepted rule allows that documented margin, applied <strong>identically to day and
+        night</strong> — daytime already clears the strict rule easily, so one shared rule costs it
+        nothing and is simpler to audit than two. Nighttime anomalies matter scientifically (February
+        2024 nights ran +5.1 °C above normal); reporting &quot;no data, every night, forever&quot;
+        would silence half the product for no real accuracy gained, since the discarded pixels aren't
+        bad measurements — they just miss an overly strict paperwork threshold.</p>
+      <p>Nothing is hidden by this: every nighttime reading also records what the strict rule would
+        have shown, and every reading in the app carries a plain confidence flag —
+        <span class="pill">ok</span> <span class="pill">low</span> <span class="pill">none</span> —
+        based on how much of the lake's surface was actually visible that day.</p>
+    </section>
+
+    <section class="doc" id="s5">
+      <div class="section-head"><span class="num">05</span><h2>What counts as &quot;the lake&quot;</h2></div>
+      <div class="chips"><span class="chip">SPACE-001</span></div>
+      <p>The whole lake, as <strong>one polygon</strong> — no basin subdivision
+        (Keszthely / Szigliget / Szemes / Siófok), and <strong>no inward shrinking</strong> of the
+        shoreline.</p>
+      <p><strong>No basins</strong> because no official Hungarian basin boundary exists to use — the
+        academic supervisor couldn't point to one either, and inventing one is a real scientific choice
+        that a six-week internship shouldn't make silently. It's documented as future work instead.</p>
+      <p><strong>No shoreline buffer</strong> because it was actually tested, across four shrink
+        distances (0 m to 927 m): shrinking inward only <em>lowers</em> the already-scarce nighttime
+        coverage further, and Balaton is narrow enough that aggressive shrinking cuts out whole
+        cross-sections of open water. And because this is an anomaly product, the same near-shore
+        mixed pixels sit in <em>both</em> the historical baseline and today's reading — so most of
+        the land-mixing bias cancels rather than skewing the anomaly. If validation later finds a
+        specific artifact, this is revisited — it's the best-evidenced choice today, not a permanent one.</p>
+    </section>
+
+    <section class="doc" id="s6">
+      <div class="section-head"><span class="num">06</span><h2>Building one day's anomaly</h2></div>
+      <div class="chips"><span class="chip">METH-001</span><span class="chip">METH-002</span></div>
+      <p>For one satellite pass, one day, three numbers get compared: what was actually measured
+        today, what's typical for this calendar day, and the gap between them.</p>
+      <p><strong>The typical value</strong> comes from every year 2003–2022, using a
+        <strong>±5-day window</strong> around the date — for 19 February, every 14–24 February,
+        2003 through 2022. Checked directly: at ±5 days almost every calendar day has a full 20 years
+        of history and 110–195 individual readings behind it — a solid sample, wider than an exact-day
+        match alone, narrower than a window that would start blending different parts of the season.</p>
+      <p><strong>Median first, mean also shown.</strong> The median — &quot;half of past years were
+        warmer, half cooler, on this kind of day&quot; — is the headline. The plain average is
+        computed too, but as a secondary reference. Why: a mean gets pulled around by occasional bad
+        pixels and by skew, and Balaton's nighttime readings <em>are</em> measurably skewed — the
+        median sits up to 2.6 °C above the mean on about 60% of the year. Leading with the mean would
+        make nighttime anomalies read systematically too warm, from statistics alone, not from
+        anything happening at the lake. A wide gap between the two is itself useful: it flags that a
+        given day's history is unusually skewed.</p>
+      <div class="eq">
+        <div class="formula">anomaly&nbsp;=&nbsp;measured&nbsp;temperature&nbsp;&minus;&nbsp;reference (median or mean)</div>
+        <div class="note"><b class="pos">Positive</b> = warmer than normal &nbsp;·&nbsp;
+          <b class="neg">Negative</b> = colder than normal. Shown as, e.g., &quot;+6.1&nbsp;°C warmer
+          than normal&quot; with the exact reference value spelled out underneath — never a bare,
+          directionless number.</div>
+      </div>
+    </section>
+
+    <section class="doc" id="s7">
+      <div class="section-head"><span class="num">07</span><h2>Percentile, then one label</h2></div>
+      <div class="chips"><span class="chip">METH-003</span><span class="chip">METH-004</span><span class="chip">TERM-001</span></div>
+      <p>A raw °C gap alone doesn't say how unusual it is — +2 °C can be ordinary in one season and
+        remarkable in another. So every reading also gets ranked against its full historical sample
+        (the same 110–195 readings from §06), using the standard <strong>Type&nbsp;7</strong>
+        percentile method. Minimum-sample guardrails exist in the method (e.g. no percentile below 10
+        historical readings) purely for an unusual data gap — on the real lake-wide product, with
+        110–195 readings behind every day, they essentially never trigger.</p>
+      <p>That percentile becomes exactly <strong>one</strong> plain-language label:</p>
+      <div class="labels-row">
+        <span class="pill p1">below normal</span>
+        <span class="pill">within normal range</span>
+        <span class="pill">warm</span>
+        <span class="pill">unusually warm</span>
+        <span class="pill p5">extreme warm observation</span>
+      </div>
+      <p>Deliberately <strong>not</strong> called a &quot;heatwave&quot; or &quot;thermal event&quot;
+        unless a properly validated method for sustained multi-day events exists — one warm day is a
+        different, smaller scientific claim than a persistent heatwave, and the wording never
+        overstates what a single reading supports.</p>
+    </section>
+
+    <section class="doc" id="s8">
+      <div class="section-head"><span class="num">08</span><h2>Why the four streams never merge</h2></div>
+      <div class="chips"><span class="chip">METH-006</span></div>
+      <p>Terra-morning, Aqua-afternoon, Terra-night, Aqua-after-midnight are always shown
+        <strong>side by side</strong> — each with its own temperature, anomaly, percentile, and
+        label. There is no single combined &quot;today's lake temperature.&quot;</p>
+      <p>They aren't measuring the same thing. A lake genuinely warms through the day and cools at
+        night — an unremarkable afternoon and a genuinely unusual warm night are two different
+        physical stories, and averaging them would blur both. A carefully designed combined index
+        remains possible future work, but only if it can be built without hiding this distinction.</p>
+    </section>
+
+    <section class="doc" id="s9">
+      <div class="section-head"><span class="num">09</span><h2>Monthly summaries</h2></div>
+      <div class="chips"><span class="chip">METH-005</span><span class="chip">QA-001</span></div>
+      <p>A month's summary — mean temperature, mean anomaly, warmest day, biggest single-day jump,
+        count of warm-or-above days — is computed <strong>per satellite pass</strong>, for the same
+        reason as §08, and only from days that already passed the §04 confidence check at
+        <span class="pill">low</span> or better.</p>
+      <p>A month needs <strong>at least 3 qualifying days</strong> before it reports anything;
+        otherwise it says so plainly — &quot;insufficient valid observations&quot; — rather than
+        quietly computing a number from one lucky clear day. Nothing is ever filled in or guessed for
+        a missing day; a cloudy month just visibly has fewer points behind its summary.</p>
+    </section>
+
+    <section class="doc" id="s10">
+      <div class="section-head"><span class="num">10</span><h2>The public app's own decisions</h2></div>
+      <div class="chips"><span class="chip">PERF-001</span><span class="chip">ARCH-001</span></div>
+      <p>Sections 03–09 are what the app <em>shows</em>. A separate layer of decisions governs
+        <em>how</em>, refined directly against real use:</p>
+      <ul>
+        <li>It reads pre-computed results and never recalculates 20 years of history live — the
+          baseline is built once and stored permanently; only new days/months get appended in a
+          manual monthly refresh.</li>
+        <li>A calendar-style date picker, not a raw numeric slider — with the recalculation
+          deliberately delayed until you stop moving, so scrubbing through many days triggers one
+          calculation, not one per day passed over.</li>
+        <li>The whole-month view has its own Month selector, separate from the daily calendar, since
+          every day inside a month gives the same monthly answer.</li>
+        <li>Once a month's or year's data is fetched, browsing inside it is instant — only the map's
+          satellite image still needs a fresh request per day, since that's genuinely a new picture
+          each time.</li>
+        <li>The map's colour scale is <strong>fixed</strong> at &minus;5&nbsp;°C to 32&nbsp;°C, never
+          rescaled to a single day's own min/max — otherwise a mild day and a truly extreme one would
+          look equally red. The small legend is cropped to the current view's own range, so you can
+          see where it sits within that fixed scale, without ever renormalising the colours themselves.</li>
+        <li>Every internal decision code you see as a chip on this page is deliberately absent from
+          the app itself — useful here, meaningless to someone just checking today's temperature.</li>
+      </ul>
+    </section>
+
+    <section class="doc" id="s11">
+      <div class="section-head"><span class="num">11</span><h2>Open and future work</h2></div>
+      <div class="chips"><span class="chip">VAL-001</span><span class="chip">DATA-005</span><span class="chip">DATA-006</span><span class="chip">SCOPE-001</span><span class="chip">SCOPE-003</span></div>
+      <p>Being upfront about what isn't claimed yet:</p>
+      <ul>
+        <li><strong>Validation</strong> is still an open decision — cross-checking the four streams
+          against each other, against Li et al. (2024), and against published ranges, plus in-situ
+          data if any becomes available. Not finalised or run yet.</li>
+        <li><strong>Landsat</strong> hotspot inspection and an <strong>ERA5-Land</strong> weather
+          context panel are approved extensions, attempted only once the core product above is solid.</li>
+        <li><strong>Basin-level results</strong>, littoral/pelagic zones, and any multi-day
+          &quot;heatwave&quot; detector are documented future work — not claimed now, because the
+          geometry or validated method they'd need doesn't exist yet.</li>
+        <li>This internship's satellite work is scientifically <strong>separate</strong> from the
+          author's MSc thesis (1978&ndash;1989 sediment chemistry) — the two are never presented as
+          explaining each other or covering the same period.</li>
+      </ul>
+    </section>
+
+    <section class="doc" id="s12">
+      <div class="section-head"><span class="num">12</span><h2>Glossary</h2></div>
+      <dl class="glossary">
+        <dt>Anomaly</dt>
+        <dd>How far today's measurement sits from what's typical for the time of year — measured
+          minus typical; positive means warmer than normal.</dd>
+        <dt>Median</dt>
+        <dd>The middle value of a sorted list — half above, half below. Resistant to a few extreme
+          or bad readings.</dd>
+        <dt>Mean</dt>
+        <dd>The plain average. Sensitive to extreme values and to a skewed distribution.</dd>
+        <dt>Percentile</dt>
+        <dd>Where a value ranks among a historical group, from 0 (coldest on record) to 100
+          (warmest on record).</dd>
+        <dt>Skin temperature</dt>
+        <dd>What a satellite thermal sensor actually measures — the top, sub-millimetre surface
+          layer. It can differ slightly from a thermometer a few centimetres into the water, which is
+          why the two aren't treated as interchangeable.</dd>
+        <dt>QC / quality flags</dt>
+        <dd>Extra information shipped with every satellite pixel describing how trustworthy that
+          specific reading is — was it cloud-free, was the viewing angle usable.</dd>
+        <dt>Shifting baseline</dt>
+        <dd>The problem where a &quot;normal&quot; that keeps updating with recent, already-changed
+          conditions gradually hides the very change you're trying to measure.</dd>
+      </dl>
+    </section>
+
+    <section class="doc" id="s13" style="margin-bottom:0;">
+      <div class="section-head"><span class="num">13</span><h2>The formal record</h2></div>
+      <p>Every decision above has a fuller, formally-worded twin entry in
+        <code>DECISIONS.md</code> at the repository root, identified by the same codes shown as chips
+        throughout this page. That file is the authoritative, dated, approval-tracked register — the
+        version a supervisor or examiner would want to audit. This page is the same decisions,
+        explained so they can be confidently re-explained in your own words.</p>
+      <footer class="doc">
+        Companion file: <code>docs/PROJECT_DECISIONS_EXPLAINED.md</code> — Lake Balaton Thermal
+        Monitoring Internship, Phase 1&ndash;4.
+      </footer>
+    </section>
+  </main>
+</div>
+
+<script>
+  (function(){
+    try{
+      var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+      var sections = links.map(function(a){ return document.querySelector(a.getAttribute('href')); });
+      if(!('IntersectionObserver' in window)) return;
+      var io = new IntersectionObserver(function(entries){
+        entries.forEach(function(entry){
+          var idx = sections.indexOf(entry.target);
+          if(idx === -1) return;
+          if(entry.isIntersecting){
+            links.forEach(function(l){ l.classList.remove('active'); });
+            links[idx].classList.add('active');
+          }
+        });
+      }, { rootMargin: '-10% 0px -70% 0px', threshold: 0 });
+      sections.forEach(function(s){ if(s) io.observe(s); });
+    }catch(e){}
+  })();
+</script>
