@@ -1,0 +1,362 @@
+# Why We Did What We Did — Lake Balaton Thermal Monitoring, Explained Plainly
+
+This document exists for one reason: so that **you** can look at any choice this project
+made — the historical period, the cloud filter, the lake boundary, the median-vs-mean
+question, the app's design — and understand *why* it's the right choice, in your own
+words, without needing to decode internal jargon.
+
+Every section below answers three questions: **what did we choose, what were the real
+alternatives, and why is our choice the correct one for what this project is trying to
+do.** Where a choice is formally recorded, I give its code (e.g. `METH-002`) in
+parentheses so you can look up the full, formal wording in `DECISIONS.md` if you ever
+need the paper trail — but you should never need to read that file to understand the
+reasoning. This document is the reasoning.
+
+A short glossary is at the very end if any statistics term is unfamiliar.
+
+---
+
+## 1. What this project actually is
+
+You're building a tool that answers one question, every day, for Lake Balaton:
+**"is the water surface unusually warm (or cold) right now, compared to what's normal
+for this exact time of year?"**
+
+That single question drives almost every decision below, because answering it honestly
+requires being very careful about what "normal" means, what counts as a trustworthy
+measurement, and how to say "warmer than normal" without hiding uncertainty or
+overselling the result. (`SCI-001`)
+
+---
+
+## 2. Where the temperature numbers come from
+
+**Choice:** NASA's MODIS instruments on two satellites — **Terra** (crosses Balaton
+around mid-morning and again at night) and **Aqua** (crosses around early afternoon and
+again after midnight). Each satellite pass is a *separate* measurement stream. (`DATA-001`)
+
+**Why these two satellites, and why keep them separate:** they're the only sensors that
+give a long, consistent, twice-daily record of the lake's actual surface temperature
+going back over 20 years. Morning conditions, afternoon conditions, and nighttime
+conditions are physically different things — a lake heats up during the day and cools at
+night, so mixing "how warm was it at 1 pm" with "how warm was it at 1 am" into one number
+would hide the real signal rather than reveal it. Section 8 explains this in more depth.
+
+**Two more data sources are approved for *later*, not yet built into the app:**
+- **Landsat** (`DATA-002`) — sharper images (30 m instead of MODIS's 1 km) for zooming
+  into a specific hot day, once the core product is finished.
+- **ERA5-Land weather reanalysis** (`DATA-003`) — air temperature, wind, sunlight, as
+  *context* for interpreting a reading, never as a replacement for the actual satellite
+  measurement.
+- **Any field/in-situ temperature measurements**, if ever obtained, would only be used as
+  an optional cross-check (`DATA-004`), since a thermometer in the water measures
+  something subtly different from what a satellite sees from orbit (see the glossary:
+  *skin temperature*).
+
+---
+
+## 3. Defining "normal": why the historical baseline is fixed at 2003–2022
+
+This is the question you asked directly, so here it is in full, because it's one of the
+most important design choices in the whole project. (`TIME-001`)
+
+**Choice:** one "normal" is worked out **once**, from **1 Jan 2003 through 31 Dec 2022**
+(20 full years), and it **never changes**. Every day from 1 Jan 2023 onward — including
+today, and every day after this internship ends — is compared against that exact same,
+frozen reference. It's a fixed ruler, not one that gets redrawn every year.
+
+**2003 specifically** is the first full calendar year where *both* Terra and Aqua were
+already up and running, so it's the earliest point where all four measurement streams
+(morning, afternoon, two nighttime passes) have a complete, comparable record.
+
+**Why not let the baseline grow every year, so 2026 is judged against 2003–2025?**
+That was your first alternative. The problem: 2024, for instance, turned out to be the
+warmest year on record for every single satellite pass (see the Phase 3 results). If you
+fold 2024's heat into the "normal" used to judge 2026, you are quietly using an
+already-warm year to raise the bar for what counts as warm — so real long-term warming
+gets partly absorbed into "normal" instead of being detected. This effect has a name in
+climate science: **shifting baseline**. It's a well-documented way of accidentally hiding
+a trend you're trying to measure. There's a second, more mechanical problem too: 2023
+would be judged against 20 years of history, 2026 against 23 years — different sample
+sizes, so you could no longer honestly say "2026 was more anomalous than 2023," because
+they were measured with two different rulers.
+
+**Why not use a rolling window instead — always the trailing 20 years, so 2026 is judged
+against 2006–2025?** That was your second alternative, and it's a real technique used
+elsewhere, but it has the same core flaw in a subtler form: the window keeps sliding
+forward, always dropping the oldest (typically cooler) years and adding the newest
+(typically warmer) ones, so the "normal" keeps drifting upward right alongside the real
+warming. That's the right tool for a different question — "was last month unusual
+compared to recent experience" — but the wrong tool for this project's actual question,
+which is "is the lake trending warmer compared to an untouched past."
+
+**Why the fixed baseline is the scientifically correct choice for this project, not just
+a preference:** this exact pattern — one fixed multi-decade reference period, deliberately
+never updated year-to-year — is how meteorological agencies define "climate normals"
+(the WMO uses fixed 30-year windows, only redefined once per decade). It's fixed on
+purpose so that:
+1. **Every monitoring year is judged by the same ruler**, so anomalies are honestly
+   comparable across years.
+2. **A real warming trend stays visible** instead of being chased and absorbed by a
+   moving reference.
+3. **The statistics behind every percentile stay stable and well-defined** (see Section
+   7), instead of the sample size growing every year and making year-to-year comparisons
+   apples-to-oranges.
+
+If the baseline is ever updated in the future, the correct way to do it is a deliberate,
+periodic redefinition (e.g. once a full new decade of data exists) — never something
+that creeps forward every single year.
+
+---
+
+## 4. Deciding which satellite readings to trust (the cloud/quality filter)
+
+**The problem:** clouds, thin haze, and edge-of-lake pixels can make a MODIS pixel report
+a temperature that isn't really the lake's surface. Every MODIS pixel comes with quality
+flags, and the strictest possible reading of those flags is the "textbook safe" choice.
+But that strict rule turned out to be unworkable for this specific lake.
+
+**What was actually measured before deciding anything** (`AUDIT-011`, `AUDIT-012`): using
+the strictest possible quality rule, **Lake Balaton has essentially zero usable nighttime
+temperature readings** — 0% coverage, every single night, for an entire year of test
+dates. A slightly looser rule (allowing a still-small, ≤ 2 K, average error margin instead
+of demanding a perfect reading) recovers about **99% nighttime coverage**, with almost
+all of those pixels sharing one specific, well-understood quality code.
+
+**Choice (`QA-002`):** use that looser-but-still-quality-controlled rule ("candidate C") —
+accept a pixel if its errors are all within documented bounds, allowing up to about ±2°C
+of built-in measurement uncertainty on the emissivity/LST-error flags — applied
+**identically to both day and night** (daytime already easily meets the strict rule, so
+using the same rule for both doesn't cost daytime anything, and having one rule instead of
+two is simpler to explain and audit).
+
+**Why loosen the rule instead of just accepting "no nighttime data"?** Nighttime lake
+temperature is scientifically important — it's often where the most interesting anomalies
+show up (see the Phase 3 report: February 2024 nights were +5.1°C above normal). Reporting
+"no data, forever, every night" would make the whole nighttime half of the product useless
+for no real gain in accuracy, since the discarded pixels aren't actually bad measurements
+— they just don't meet an overly strict paperwork threshold.
+
+**The honesty condition that comes with this choice:** every nighttime reading in the
+underlying data explicitly carries what coverage the strict rule *would* have given,
+so nothing is hidden — a future user or reviewer can always see exactly how much
+looser this rule is. The app also reports a **confidence flag** (`ok` / `low` / `none`)
+based on how much of the lake's surface was actually visible that day, so a reading based
+on only a handful of clear pixels is visibly marked as less certain, never presented with
+false confidence.
+
+---
+
+## 5. What area counts as "the lake"
+
+**Choice (`SPACE-001`):** the whole lake, as **one single polygon** — no basin
+subdivision (Keszthely / Szigliget / Szemes / Siófok), and **no inward shrinking** of the
+shoreline (0 m buffer).
+
+**Why not split into basins?** Because there's no official, agreed-upon Hungarian basin
+boundary to use — this was checked directly with the academic supervisor, who couldn't
+point to one either. Inventing a boundary (e.g. "just draw lines at the narrow points")
+would be a real scientific choice requiring its own justification, and there wasn't time
+to do that properly in a six-week internship. So it's documented as a legitimate future
+extension, not silently skipped.
+
+**Why not shrink the shoreline inward, to avoid "mixed" pixels that are part-land,
+part-water?** This was actually tested (`AUDIT-001`/`AUDIT-012`) across four different
+shrink distances (0 m, 463 m, 500 m, 927 m). Shrinking inward *reduces* the
+already-scarce nighttime coverage further (by about 1–1.5 percentage points), and Lake
+Balaton is narrow enough that aggressive shrinking would cut out entire cross-sections of
+open water. Crucially, because this is an **anomaly** product (today vs. the 20-year
+normal for the same pixels), any land-mixing bias in a shoreline pixel is present in
+*both* the historical baseline and today's reading — so it mostly cancels out rather than
+biasing the anomaly number. If a validation check later finds a specific artifact (e.g. an
+unrealistic daytime warm bias near the shore), this choice will be revisited — it isn't
+locked in forever, just currently the best-evidenced option.
+
+---
+
+## 6. How a single day's anomaly number is actually built
+
+For one satellite pass, on one day, three numbers get compared:
+
+1. **What was actually measured today** (the clear-sky pixels over the lake, averaged).
+2. **What's "typical" for this calendar day**, computed from history.
+3. **The difference between them** — the anomaly.
+
+**The historical "typical" value (`METH-001`):** built from every year 2003–2022, using
+not just the exact same calendar day but a **±5-day window** around it (e.g. for 19
+February, every 14–24 February from 2003 through 2022). This was checked directly
+(`AUDIT-013`): at ±5 days, essentially every calendar day of the year has a full 20 years
+of history behind it and 110–195 individual daily readings feeding the statistic — a
+solid, reliable sample. A single exact calendar day alone (no window) would have far
+fewer data points and be noisier; a much wider window (e.g. ±15 days) would start
+blending genuinely different parts of the season together. ±5 days was the point that
+gave a robust sample without blurring the season.
+
+**Median vs. mean — which "typical" value, and why both are computed (`METH-002`):**
+you asked this directly too, and it's worth spelling out. The **median** — literally
+"half of past years were warmer, half were cooler, on this kind of day" — is the
+**headline** number the app leads with. The **mean** (plain average) is also computed and
+shown, but as a secondary reference, not the headline. Why median first: a plain average
+gets pulled around by occasional bad points (thin cloud edges, mixed pixels) and by
+skewed distributions — and the Phase 3 data confirmed Balaton's nighttime readings *are*
+skewed (a long cold tail), enough that the median sits up to 2.6°C *above* the mean on
+about 60% of the year. If the mean were used as the headline, nighttime anomalies would
+read systematically "too warm" simply due to that statistical skew, not due to anything
+actually happening at the lake. The mean is still reported because a big gap between the
+median and the mean is itself a useful signal — it tells you that particular day's history
+is unusually skewed, worth a second look.
+
+**The sign / direction (also asked directly):**
+
+> **anomaly = today's measured temperature − the historical value (median or mean)**
+
+A **positive** number means today was **warmer** than normal; **negative** means
+**colder**. This is why the app now writes it out explicitly as "+6.1°C warmer than
+normal" with a sub-line spelling out "measured minus the 2003–2022 median for 13 April
+±5 days," rather than a bare, ambiguous "anomaly vs. median: 6.1°C."
+
+---
+
+## 7. Turning the anomaly into a percentile and a plain-language label
+
+A raw °C difference doesn't tell you how *unusual* it is on its own — "+2°C" could be
+completely ordinary in one season and remarkable in another. So the app also works out
+**where today's reading ranks** among all the historical readings for that time of year.
+
+**Choice (`METH-003`):** a standard statistical method (called "Type 7") ranks today's
+value against the full historical sample for that ±5-day window (the same 110–195
+readings from Section 6). The result is a **percentile** — e.g. "warmer than 92% of
+historical readings for this time of year." Because Balaton's real sample sizes (110–195)
+are always comfortably large, a set of minimum-sample-size safety rules exist in the
+method (e.g. "don't report a percentile from fewer than 10 historical readings") purely
+as a guardrail for an unusual data gap — in practice, on the current lake-wide product,
+they essentially never trigger.
+
+**Turning a percentile into one label (`METH-004`):** exactly **one** plain-language
+label per reading, chosen from: *below normal, within normal range, warm, unusually
+warm, extreme warm observation* — based on which percentile band the reading falls into
+(below the 10th percentile, 10th–90th, 90th–95th, 95th–99th, above 99th). Deliberately
+**not** called a "heatwave" or "thermal event" (`TERM-001`) unless a properly validated
+method for detecting sustained multi-day events is built and approved — a single warm day
+is not the same scientific claim as a persistent heatwave, and the wording is chosen to
+never overstate what one day's reading can support.
+
+---
+
+## 8. Why the four satellite passes are never merged into one number
+
+**Choice (`METH-006`):** Terra-morning, Aqua-afternoon, Terra-evening/night, and
+Aqua-after-midnight are always shown **side by side**, each with its own temperature,
+its own anomaly, its own percentile, and its own label. There is **no** single combined
+"the lake's temperature today" number.
+
+**Why not average them together?** They aren't measuring the same thing. A lake's surface
+genuinely warms through the day and cools at night — a mild, unremarkable afternoon and a
+genuinely unusual, warm night are two different physical stories, and averaging them
+would blur both. Keeping them separate is also simply more honest about what each
+satellite pass can and can't tell you. A combined, carefully-designed index is listed as
+a possible *future* extension, but only if it can be built without hiding this distinction
+— not for this six-week core product.
+
+---
+
+## 9. How monthly summaries are built
+
+**Choice (`METH-005`):** a month's summary (mean temperature, mean anomaly, warmest
+day, biggest single-day jump, count of "warm-or-above" days) is computed **per satellite
+pass** (never merging streams, for the same reason as Section 8) and **only from days
+that already passed the quality-confidence check in Section 4** at `low` or better.
+
+**The minimum-data rule:** a month needs **at least 3 qualifying days** before it reports
+a summary at all; otherwise it explicitly says "insufficient valid observations" rather
+than quietly computing a number from, say, one lucky clear day. Nothing is ever filled in
+or guessed for a missing day (`QA-001`) — a cloudy month just has fewer data points behind
+its summary, visibly.
+
+---
+
+## 10. Building the public app (Phase 4) — and why it looks the way it does
+
+The scientific method above (Sections 3–9) is what the app *shows*; a separate set of
+engineering/UX decisions were made about *how* it shows it, refined directly from your
+feedback while testing it:
+
+- **The app reads pre-computed results, it never recalculates 20 years of history live**
+  (`PERF-001`, `ARCH-001`) — otherwise every click would be painfully slow. The
+  climatology baseline (Section 3) is computed once and stored as a permanent Earth
+  Engine table; only new days/months get appended over time, in a manual monthly refresh.
+- **A calendar-style date picker**, not a slider showing raw numbers, because that's a far
+  more natural way to jump to a specific day — with the underlying recalculation
+  deliberately **debounced** so quickly scrubbing through many days triggers one
+  calculation at the end, not one per day passed over.
+- **The whole-month view uses its own Month selector**, separate from the daily
+  calendar, because every day inside one month gives the *same* monthly summary — there
+  was no reason to force a day-level choice onto a month-level question.
+- **Client-side caching by month and by year**: once a month's (or year's) data has been
+  fetched from Earth Engine, browsing within that same month/year re-uses it instantly
+  instead of re-querying — only the actual satellite image on the map still needs a fresh
+  request per day, since that's a genuinely different picture every time.
+- **The temperature color scale on the map is fixed** (−5°C to 32°C), not rescaled to
+  each day's own min/max — otherwise a mild day and a genuinely extreme day would look
+  equally "red," which would visually lie about how unusual a reading actually is. The
+  small legend bar in the corner *is* cropped to show only the slice of that fixed scale
+  the current view actually occupies (so you can see at a glance whether today's colors
+  sit near the cold end, the warm end, or the pale middle of the full range) — but the
+  colors themselves are never renormalized.
+- **All internal decision codes (`METH-006`, `QA-002`, etc.) were deliberately stripped
+  from the user-facing app text** — they're useful for this document and for `DECISIONS.md`,
+  but meaningless to anyone opening the public app, so the app instead explains things in
+  the same plain language used throughout this document.
+
+---
+
+## 11. What's still open, and what's explicitly future work
+
+Being upfront about what this project does *not* yet claim:
+
+- **Validation (`VAL-001`) is still an open decision** — the plan is to cross-check the
+  four streams against each other, against the Li et al. (2024) reference study, and
+  against published literature ranges, plus in-situ measurements *if* any become
+  available. This hasn't been finalized or run yet.
+- **Landsat hotspot inspection and the ERA5-Land weather-context panel** (`DATA-005`,
+  `DATA-006`) are approved *extensions*, attempted only after the core product above is
+  solid — not part of the guaranteed six-week deliverable (`SCOPE-003`).
+- **Basin-level (not whole-lake) results, littoral/pelagic zones, and any multi-day
+  "heatwave" detector** are documented as legitimate future work, explicitly not claimed
+  now, because the geometry or the validated method they'd need doesn't exist yet.
+- **This internship's satellite-temperature work is scientifically separate from your
+  MSc thesis** (1978–1989 sediment chemistry) — the two must never be presented as
+  explaining each other or as covering the same time period (`SCOPE-001`).
+
+---
+
+## 12. Quick glossary
+
+- **Anomaly** — how far today's measurement is from what's "typical" for that time of
+  year (measured minus typical; positive = warmer than normal).
+- **Median** — the middle value of a sorted list (half above, half below). Robust to a
+  few extreme/bad readings.
+- **Mean** — the plain average. Sensitive to extreme values and to a skewed distribution.
+- **Percentile** — where a value ranks among a historical group, from 0 (coldest on
+  record) to 100 (warmest on record).
+- **Skin temperature** — what a satellite thermal sensor actually measures: the very
+  top, sub-millimeter surface layer. It can differ slightly from a thermometer dipped a
+  few centimeters into the water (in-situ measurement), which is why the two aren't
+  treated as interchangeable.
+- **QC / quality flags** — extra information a satellite product ships alongside every
+  pixel, describing how trustworthy that specific pixel's reading is (e.g. was it
+  cloud-free, was the sensor viewing at a bad angle).
+- **Shifting baseline** — the problem where a reference ("normal") that keeps updating
+  itself with recent, already-changed conditions gradually hides the very change you're
+  trying to measure.
+
+---
+
+## 13. Where the formal paper trail lives
+
+Every decision above has a fuller, formally-worded twin entry in `DECISIONS.md` at the
+repository root, identified by the code shown in parentheses throughout this document
+(e.g. `METH-002`, `QA-002`, `ARCH-001`). That file is the authoritative, dated,
+approval-tracked register — the version a supervisor or examiner would want to audit.
+This document is the same set of decisions, explained so *you* can confidently explain
+them yourself, in your own words, to anyone who asks.
