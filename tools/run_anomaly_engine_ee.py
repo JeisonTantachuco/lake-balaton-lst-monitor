@@ -7,9 +7,11 @@ the "is this temperature unusual?" computation:
                         then the +/-5-day day-of-year baseline (median + mean + sorted
                         list for Type-7 percentiles). Writes artefacts 0 and 1.
   --daily-records     : anomaly records for monitoring dates (default 2023-01-01..today)
-                        against the baseline. Writes artefact 2.
-  --monthly           : stream-specific monthly summaries from the daily records.
-                        Writes artefact 3.
+                        against the baseline, plus the stream-specific monthly
+                        summaries derived from them. Writes artefacts 2 and 3.
+  --rebuild-monthly   : offline; re-derive artefact 3 (monthly summaries) from the
+                        stored artefact 2 without any Earth Engine call. Use after a
+                        change to the monthly aggregation; follow with --export-assets.
   --self-test         : offline; no Earth Engine, no network, no filesystem mutation.
 
 Reads observation values and counts only -- never a coordinate, never a raster byte.
@@ -309,10 +311,18 @@ def assemble_monthly(daily_records: list[dict[str, Any]]) -> list[dict[str, Any]
                          - dt.date(year, month, 1)).days
         qualifying = [r for r in records if r["confidence"] in ("ok", "low")
                       and r["daily_lst_c"] is not None]
+        low_days = [r for r in qualifying if r["confidence"] == "low"]
+        # QA-002 transparency: a month can clear the >=3-day minimum on days that
+        # each saw <15% of the lake. These two fields expose how thin a reported
+        # month is; they do not change which months are reported or any value.
         row: dict[str, Any] = {
             "stream_id": stream_id, "month": month_key,
             "calendar_day_count": calendar_days,
             "valid_day_count": len(qualifying),
+            "low_coverage_day_count": len(low_days),
+            "mean_valid_water_fraction": (
+                round(statistics.fmean(r["valid_water_fraction"] for r in qualifying), 4)
+                if qualifying else None),
             "missing_or_cloud_fraction": round(1 - len(qualifying) / calendar_days, 4),
         }
         if len(qualifying) < MONTHLY_MIN_VALID_DAYS:
@@ -769,6 +779,43 @@ def build_daily_records(project: str) -> int:
     return 0
 
 
+def rebuild_monthly() -> int:
+    """Offline: re-derive monthly_summaries.json from the stored daily_anomaly_records.json.
+
+    The daily records are unchanged, so this needs no Earth Engine call. Use it after a
+    change to assemble_monthly (e.g. the QA-002 low-coverage transparency fields) rather
+    than a full --daily-records re-collection. Follow with --export-assets to publish.
+    """
+    daily_path = STATE_DIR / "daily_anomaly_records.json"
+    if not daily_path.exists():
+        raise EngineFailure("DAILY_ANOMALY_RECORDS_ARTIFACT_MISSING")
+    daily_payload = json.loads(daily_path.read_text(encoding="utf-8"))
+    records = daily_payload["records"]
+    if canonical_sha256(records) != daily_payload["records_sha256"]:
+        raise EngineFailure("DAILY_ARTIFACT_HASH_MISMATCH")
+    if validate_daily_records(records):
+        raise EngineFailure("DAILY_ARTIFACT_INVALID")
+    monthly = assemble_monthly(records)
+    monthly_payload = {
+        "artifact": "monthly_summaries", "specification": SPECIFICATION,
+        "implementation": IMPLEMENTATION, "coordinate_free": True, "reads_coordinates": False,
+        "geometry_identity_sha256": daily_payload["geometry_identity_sha256"],
+        "method_parameters": _method_parameters(),
+        "daily_anomaly_records_sha256": daily_payload["records_sha256"],
+        "row_count": len(monthly), "rows": monthly, "rows_sha256": canonical_sha256(monthly),
+        "rebuilt_offline_from_daily_records": True,
+    }
+    _write_artifact("monthly_summaries", monthly_payload)
+    print(json.dumps({"ANOMALY_ENGINE_REBUILD_MONTHLY_COMPLETE": {
+        "specification": SPECIFICATION, "implementation": IMPLEMENTATION,
+        "coordinate_free": True, "reads_coordinates": False,
+        "daily_anomaly_records_sha256": daily_payload["records_sha256"],
+        "monthly_summary": _monthly_summary_stats(monthly),
+        "monthly_rows_sha256": monthly_payload["rows_sha256"], "pass": True,
+    }}, sort_keys=True, separators=(",", ":")), flush=True)
+    return 0
+
+
 ASSET_SUBFOLDER = "balaton_anomaly"
 # Earth Engine table-asset feature properties must be scalars -- no lists. The baseline
 # asset therefore stores a fixed set of percentile break-points as separate columns
@@ -1164,11 +1211,24 @@ def self_test() -> int:
     row = next(r for r in monthly if r["stream_id"] == "terra_night" and r["month"] == "2024-01")
     if row["state"] != "reported" or row["valid_day_count"] != 10 or \
        row["monthly_mean_anomaly_vs_median_c"] is None or \
-       row["calendar_day_count"] != 31:
+       row["calendar_day_count"] != 31 or row["low_coverage_day_count"] != 0 or \
+       row["mean_valid_water_fraction"] != 0.25:
         failures.append("assemble_monthly:" + json.dumps(row))
     short_month = assemble_monthly(records[:2])
     if next(r for r in short_month)["state"] != "insufficient valid observations":
         failures.append("assemble_monthly_short")
+
+    # a month that clears the >=3-day minimum entirely on low-coverage days
+    low_records = []
+    for day in range(1, 5):
+        low_records.append(anomaly_record(
+            {"stream_id": "aqua_night", "date_utc": f"2024-02-{day:02d}",
+             "daily_lst_c": 1.0 + day * 0.1, "valid_water_fraction": 0.05,
+             "accepted_pixel_count": 30, "eligible_pixel_count": 600}, jan15))
+    low_row = next(r for r in assemble_monthly(low_records) if r["month"] == "2024-02")
+    if low_row["state"] != "reported" or low_row["low_coverage_day_count"] != 4 or \
+       low_row["valid_day_count"] != 4 or low_row["mean_valid_water_fraction"] != 0.05:
+        failures.append("assemble_monthly_low_coverage:" + json.dumps(low_row))
 
     # assemble_daily_records + validate_daily_records against the full-year baseline
     dv = [
@@ -1220,21 +1280,25 @@ def main() -> int:
     parser.add_argument("--project")
     parser.add_argument("--build-climatology", action="store_true")
     parser.add_argument("--daily-records", action="store_true")
+    parser.add_argument("--rebuild-monthly", action="store_true")
     parser.add_argument("--export-assets", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
         return self_test()
-    if not args.project:
-        parser.error("--project is required unless --self-test is used")
+    if not args.rebuild_monthly and not args.project:
+        parser.error("--project is required unless --self-test or --rebuild-monthly is used")
     try:
+        if args.rebuild_monthly:
+            return rebuild_monthly()
         if args.build_climatology:
             return build_climatology(args.project)
         if args.daily_records:
             return build_daily_records(args.project)
         if args.export_assets:
             return export_assets(args.project)
-        parser.error("choose a mode: --build-climatology, --daily-records or --export-assets")
+        parser.error("choose a mode: --build-climatology, --daily-records, "
+                     "--rebuild-monthly or --export-assets")
         return 2
     except EngineFailure as exc:
         print(json.dumps({"ANOMALY_ENGINE_FAILED": {
