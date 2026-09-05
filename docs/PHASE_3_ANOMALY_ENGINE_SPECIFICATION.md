@@ -62,7 +62,7 @@ The monitoring observation is never added to its own baseline. Streams are recor
 
 Per stream, per calendar month, per the lake-wide unit, from the §3 daily records with `confidence` `low` or better and requiring **≥ 3** such days (`QA-002`, `METH-005`):
 
-`monthly_mean_lst_c`, `monthly_mean_anomaly_vs_median_c`, `monthly_mean_anomaly_vs_mean_c`, `hottest_observation` (date + `daily_lst_c`), `max_anomaly_vs_median_c` (date + value), `warm_observation_count` (days with `historical_percentile ≥ 90` — and how many of the qualifying days had a percentile at all), `valid_day_count`, `calendar_day_count`, `missing_or_cloud_fraction` = 1 − valid_day_count ÷ calendar_day_count.
+`monthly_mean_lst_c`, `monthly_mean_anomaly_vs_median_c`, `monthly_mean_anomaly_vs_mean_c`, `hottest_observation` (date + `daily_lst_c`), `max_anomaly_vs_median_c` (date + value), `warm_observation_count` (days with `historical_percentile ≥ 90` — and how many of the qualifying days had a percentile at all), `valid_day_count`, `low_coverage_day_count` (of the valid days, how many were tier `low`), `mean_valid_water_fraction` (average accepted valid-water fraction over the valid days), `calendar_day_count`, `missing_or_cloud_fraction` = 1 − valid_day_count ÷ calendar_day_count. `low_coverage_day_count` and `mean_valid_water_fraction` are additive transparency (`QA-002`, "monthly low-coverage transparency", 2026-09-05); they change no threshold or value.
 
 `< 3` qualifying days → `insufficient valid observations` (counts still shown). A month with no qualifying day in any stream → explicit missing state. No zero-fill, no interpolation (`QA-001`).
 

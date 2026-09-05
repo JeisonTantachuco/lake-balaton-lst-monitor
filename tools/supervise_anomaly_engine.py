@@ -25,7 +25,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER_PATH = ROOT / "tools" / "run_anomaly_engine_ee.py"
 BASE_SUPERVISOR_PATH = ROOT / "tools" / "supervise_whole_lake_boundary_shoreline_audit.py"
-EXPECTED_RUNNER_SHA256 = "ba17225dc32a16539f1cda90aa43485d2a5f6f97960dcb3eb57cbc16f763ba06"
+EXPECTED_RUNNER_SHA256 = "ceb6b4d2e27c665a25b790805f65f9d1c91d486b2255d5cfee9295a5f553324b"
 EXPECTED_BASE_SUPERVISOR_SHA256 = "8614de215b21e1722520f482c22516c04dea13950d58ba194ded252e9cfd7064"
 IMPLEMENTATION = "anomaly_engine_windows_supervisor_v1"
 REQUEST_LIMIT_SECONDS = 480.000

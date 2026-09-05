@@ -279,6 +279,13 @@ function kv(key, value, valueColour) {
 function bigLabel(text, colour) {
   return ui.Label(text, {fontSize: '14px', fontWeight: 'bold', color: colour || '#000', margin: '2px 0 4px 0'});
 }
+function lowCoverageNote() {
+  return ui.Label(
+    '*  "low coverage" day = fewer than 15% of the lake (about 700 pixels) had a clear, '
+    + 'quality-checked view from this satellite pass; cloud, ice or QA masking removed the '
+    + 'rest. These days are still counted in the monthly averages above.',
+    {fontSize: '9px', color: '#888', margin: '6px 0 0 0'});
+}
 
 function differenceSentence(delta) {
   var sign = delta >= 0 ? '+' : '−';
@@ -501,7 +508,10 @@ function fillMonthlyReadout(streamId, monthName, p) {
   if (!p) { monthlyReadout.add(bigLabel('No summary for this month', '#999')); return; }
   if (p.state !== 'reported') {
     monthlyReadout.add(bigLabel('Not enough clear days to summarise', '#cc4c02'));
-    monthlyReadout.add(kv('Clear days', p.valid_day_count + ' of ' + p.calendar_day_count));
+    monthlyReadout.add(kv('Clear days', p.valid_day_count + ' of ' + p.calendar_day_count
+      + (p.low_coverage_day_count > 0
+          ? '  (' + p.low_coverage_day_count + ' low coverage*)' : '')));
+    if (p.low_coverage_day_count > 0) { monthlyReadout.add(lowCoverageNote()); }
     return;
   }
   monthlyReadout.add(kv('Average lake-surface temp', fmt(p.monthly_mean_lst_c) + ' °C'));
@@ -514,12 +524,26 @@ function fillMonthlyReadout(streamId, monthName, p) {
     + fmt(Math.abs(p.monthly_mean_anomaly_vs_mean_c)) + ' °C)', '#888'));
   monthlyReadout.add(kv('Clear days used',
     p.valid_day_count + ' of ' + p.calendar_day_count
+    + (p.low_coverage_day_count > 0
+        ? ' — ' + p.low_coverage_day_count + ' of them low coverage*' : '')
     + '  (' + (p.missing_or_cloud_fraction * 100).toFixed(0) + '% missing or cloudy)'));
+  if (typeof p.mean_valid_water_fraction === 'number') {
+    monthlyReadout.add(kv('', 'On a clear day about '
+      + (p.mean_valid_water_fraction * 100).toFixed(0)
+      + '% of the lake was seen, on average', '#888'));
+  }
+  if (p.low_coverage_day_count >= p.valid_day_count && p.valid_day_count > 0) {
+    monthlyReadout.add(ui.Label(
+      'Every clear day this month saw less than 15% of the lake — this monthly '
+      + 'summary rests on very thin coverage; treat it with caution.',
+      {fontSize: '10px', color: '#cc4c02', margin: '2px 0 4px 0'}));
+  }
   monthlyReadout.add(kv('Warm-or-above days', String(p.warm_observation_count)));
   monthlyReadout.add(kv('Warmest reading',
     fmt(p.hottest_observation_lst_c) + ' °C on ' + p.hottest_observation_date));
   monthlyReadout.add(kv('Biggest single-day jump',
     '+' + fmt(p.max_anomaly_vs_median_c) + ' °C on ' + p.max_anomaly_vs_median_date));
+  if (p.low_coverage_day_count > 0) { monthlyReadout.add(lowCoverageNote()); }
 }
 
 function drawMonthlyMap(streamId, p) {

@@ -56,6 +56,8 @@ Documented for the maintainer. Once a month (or whenever new data is wanted):
 2. `python tools/run_anomaly_engine_ee.py --project ee-jtantaroman --export-assets` — re-exports the `daily_anomaly_records` and `monthly_summaries` tables (the `climatology_baseline` and `lake_boundary` assets are left alone).
 3. The app picks up the new data automatically on its next load.
 
+If only the **monthly aggregation** changed (not the daily records) — e.g. the `QA-002` low-coverage transparency fields added 2026-09-05 — step 1 can be replaced by the offline `python tools/run_anomaly_engine_ee.py --rebuild-monthly` (no Earth Engine call; re-derives `monthly_summaries.json` from the stored `daily_anomaly_records.json`), then run step 2.
+
 No recomputation of history, no baseline change, no code change. MODIS has ~1–2 day latency, so "current" means through roughly two days ago.
 
 ## 6. Deployment
