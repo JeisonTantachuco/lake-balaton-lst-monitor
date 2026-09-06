@@ -207,7 +207,7 @@ panel.add(streamSelect);
 var dateSlider = ui.DateSlider({
   start: FIRST_YEAR + '-01-01',
   end: isoPlusDays(LAST_EXPORT_DATE, 1),
-  value: '2024-02-19',
+  value: LAST_EXPORT_DATE,   // replaced on load by the most recent day that has a reading
   period: 1,
   style: {stretch: 'horizontal'}
 });
@@ -234,7 +234,11 @@ var monthPickItems = [];
     }
   }
 })();
-var monthYearSelect = ui.Select({items: monthPickItems, value: '2024-02', style: {stretch: 'horizontal'}});
+var monthYearSelect = ui.Select({
+  items: monthPickItems,
+  value: monthPickItems[monthPickItems.length - 1].value,   // most recent month with data
+  style: {stretch: 'horizontal'}
+});
 var monthGroup = ui.Panel();
 monthGroup.add(ui.Label('Month', {fontWeight: 'bold', margin: '8px 0 2px 0'}));
 monthGroup.add(monthYearSelect);
@@ -450,32 +454,55 @@ function fillPassTable(dstr, byStream) {
     'Each pass is measured and judged on its own — they are never averaged together.',
     {fontSize: '10px', color: '#888', margin: '0 0 3px 0'}));
 
+  // Every cell — header and body — sets margin:'0' and the same width, so the
+  // columns line up. (Leaving the header labels on the default label margin was
+  // why "temp" / "vs normal" sat shifted right of the numbers under them.)
+  var C_PASS = '118px', C_TEMP = '52px', C_NORM = '62px';
+  function cell(text, w, extra) {
+    var st = {fontSize: '10px', margin: '0'};
+    if (w) { st.width = w; } else { st.stretch = 'horizontal'; }
+    for (var k in (extra || {})) { st[k] = extra[k]; }
+    return ui.Label(text, st);
+  }
+
   var header = ui.Panel({layout: ui.Panel.Layout.flow('horizontal')});
-  header.add(ui.Label('pass', {fontSize: '10px', color: '#888', width: '110px'}));
-  header.add(ui.Label('temp', {fontSize: '10px', color: '#888', width: '55px'}));
-  header.add(ui.Label('vs normal', {fontSize: '10px', color: '#888', width: '75px'}));
-  header.add(ui.Label('verdict', {fontSize: '10px', color: '#888', stretch: 'horizontal'}));
+  header.add(cell('pass', C_PASS, {color: '#888'}));
+  header.add(cell('temp', C_TEMP, {color: '#888'}));
+  header.add(cell('vs normal', C_NORM, {color: '#888'}));
+  header.add(cell('verdict', null, {color: '#888'}));
   passTablePanel.add(header);
 
+  var anyLow = false;
   STREAM_ORDER.forEach(function (id) {
     var p = byStream[id].byDate[dstr];
+    var low = !!(p && p.confidence === 'low');
+    if (low) { anyLow = true; }
     var row = ui.Panel({layout: ui.Panel.Layout.flow('horizontal'), style: {margin: '1px 0'}});
-    row.add(ui.Label(STREAMS[id].short, {fontSize: '10px', width: '110px', margin: '0'}));
+    // The low-coverage marker belongs to the pass, not to the difference — it is
+    // about how much of the lake that overpass saw, not about the number itself.
+    row.add(cell(STREAMS[id].short + (low ? ' *' : ''), C_PASS,
+      low ? {color: '#cc4c02'} : null));
     if (!p) {
-      row.add(ui.Label('–', {fontSize: '10px', width: '55px', margin: '0', color: '#bbb'}));
-      row.add(ui.Label('', {fontSize: '10px', width: '75px', margin: '0'}));
-      row.add(ui.Label('', {fontSize: '10px', margin: '0', stretch: 'horizontal'}));
+      row.add(cell('–', C_TEMP, {color: '#bbb'}));
+      row.add(cell('', C_NORM));
+      row.add(cell('', null));
     } else {
-      row.add(ui.Label(fmt(p.daily_lst_c) + '°', {fontSize: '10px', width: '55px', margin: '0'}));
-      row.add(ui.Label((p.anomaly_vs_median_c >= 0 ? '+' : '−')
-        + fmt(Math.abs(p.anomaly_vs_median_c)) + '°' + (p.confidence === 'low' ? ' (low)' : ''),
-        {fontSize: '10px', width: '75px', margin: '0'}));
-      row.add(ui.Label(LABEL_DISPLAY[p.classification] || p.classification,
-        {fontSize: '10px', margin: '0', stretch: 'horizontal',
-         color: LABEL_COLOUR[p.classification] || '#000'}));
+      row.add(cell(fmt(p.daily_lst_c) + '°', C_TEMP));
+      row.add(cell((p.anomaly_vs_median_c >= 0 ? '+' : '−')
+        + fmt(Math.abs(p.anomaly_vs_median_c)) + '°', C_NORM));
+      row.add(cell(LABEL_DISPLAY[p.classification] || p.classification, null,
+        {color: LABEL_COLOUR[p.classification] || '#000'}));
     }
     passTablePanel.add(row);
   });
+
+  if (anyLow) {
+    passTablePanel.add(ui.Label(
+      '*  low coverage — fewer than 15% of the lake (about 700 pixels) had a clear, '
+      + 'quality-checked view on this pass; cloud, ice or QA masking removed the rest. '
+      + 'The reading is still shown but is less certain.',
+      {fontSize: '9px', color: '#888', margin: '4px 0 0 0'}));
+  }
 }
 
 /* ------------------------------------------------------------ monthly view */
@@ -757,4 +784,20 @@ streamSelect.onChange(refresh);
 dateSlider.onChange(ui.util.debounce(refresh, 450));
 monthYearSelect.onChange(refresh);
 
-refresh();
+/* --------------------------------------------------------- initial landing */
+
+// Open on the most recent day that actually has a Terra-morning reading, not on a
+// fixed calendar date. A fixed date can fall on a heavily clouded pass, and a
+// first-time visitor who lands on "No reading for this day" reasonably assumes the
+// app is broken or has no data. One small Earth Engine call at start-up finds the
+// latest day with data; if it fails, the slider keeps its LAST_EXPORT_DATE value.
+DAILY.filter(ee.Filter.eq('stream_id', 'terra_day'))
+  .sort('date_utc', false)
+  .limit(1)
+  .evaluate(function (fc) {
+    var feats = (fc && fc.features) || [];
+    if (feats.length && feats[0].properties && feats[0].properties.date_utc) {
+      dateSlider.setValue(feats[0].properties.date_utc, false);
+    }
+    refresh();
+  });
