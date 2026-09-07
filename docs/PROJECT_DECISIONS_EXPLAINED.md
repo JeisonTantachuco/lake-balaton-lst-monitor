@@ -116,34 +116,157 @@ a temperature that isn't really the lake's surface. Every MODIS pixel comes with
 flags, and the strictest possible reading of those flags is the "textbook safe" choice.
 But that strict rule turned out to be unworkable for this specific lake.
 
-**What was actually measured before deciding anything** (`AUDIT-011`, `AUDIT-012`): using
-the strictest possible quality rule, **Lake Balaton has essentially zero usable nighttime
-temperature readings** — 0% coverage, every single night, for an entire year of test
-dates. A slightly looser rule (allowing a still-small, ≤ 2 K, average error margin instead
-of demanding a perfect reading) recovers about **99% nighttime coverage**, with almost
-all of those pixels sharing one specific, well-understood quality code.
+This section is longer than the others because it's the part people ask about most —
+*"why does the daily map have holes in it?"* The short answer: most holes are clouds that
+NASA removed before we ever saw the data, and the rest are pixels we chose not to trust.
+The rest of this section is that answer in slow motion.
 
-**Choice (`QA-002`):** use that looser-but-still-quality-controlled rule ("candidate C") —
-accept a pixel if its errors are all within documented bounds, allowing up to about ±2°C
-of built-in measurement uncertainty on the emissivity/LST-error flags — applied
-**identically to both day and night** (daytime already easily meets the strict rule, so
-using the same rule for both doesn't cost daytime anything, and having one rule instead of
-two is simpler to explain and audit).
+### 4.1 The picture you're actually working with
 
-**Why loosen the rule instead of just accepting "no nighttime data"?** Nighttime lake
+Each satellite pass is **one snapshot**, taken in about 5 minutes as the satellite flies
+over Hungary — not a blended or "best of the day" picture. Whatever the sky is doing in
+those 5 minutes is what you get. There's no waiting for a better moment.
+
+*Example:* if a band of cloud is drifting across the western basin at 10:02 when Terra
+passes, the western basin is missing from that day's Terra-morning image — even if it was
+perfectly clear an hour earlier.
+
+- **Plain:** one photo per satellite per pass, ~5 minutes, not a composite.
+- **Formal:** the `MOD11A1` (Terra) / `MYD11A1` (Aqua) daily 1 km LST product — one
+  instantaneous overpass per satellite per day, *not* a temporal composite.
+
+### 4.2 Clouds are removed before we ever see the data
+
+Before this project touches anything, NASA has already run its own cloud detector on the
+image. Any pixel it judges cloudy is left **blank** — NASA doesn't even try to compute a
+temperature there. So **most holes in the daily map are simply "there was a cloud here,"
+decided upstream, not by us.**
+
+*Example:* on a day with scattered fair-weather cumulus you get a Swiss-cheese pattern —
+many small blank dots. On a day with a weather front you get a clean diagonal edge: clear
+on one side, blank on the other.
+
+- **Plain:** cloudy pixels never arrive with a number attached.
+- **Formal:** NASA's `MOD35` cloud mask, applied upstream. In the pixel's quality byte
+  this appears as **mandatory QA = 2** — *"LST not produced due to cloud."* A related
+  code, **mandatory QA = 3**, means *"not produced for another reason"* (thin cloud,
+  aerosol, a missing atmospheric-correction input) — also blank, also not our decision.
+
+### 4.3 The four-grade report card on every surviving pixel
+
+For the pixels that *do* come with a temperature, MODIS attaches a one-byte "report card"
+carrying four separate grades. Each grade is a small number from 0 (best) to 3 (worst):
+
+| Report-card grade | Plain-language question it answers | Formal field |
+|---|---|---|
+| **Was a value produced, and roughly how good?** | "Did the photo come out at all?" | `mandatory_qa` |
+| **Solid retrieval or a shaky one?** | "Is it in focus?" | `data_quality` |
+| **Do we know what this surface is made of?** | "Did we guess the material right — open water vs. reed vs. mud?" | `emissivity_error` |
+| **How many degrees might we be off?** | "±1 K? ±2 K? ±3 K?" | `lst_error` |
+
+All four grades are packed into a single 8-bit number, which is why the code uses
+bit-shifting (`bitwiseAnd`, `rightShift`) — that's just unpacking the four grades back
+out of the one byte.
+
+**What "emissivity error" means, since it's the least obvious one:** MODIS never measures
+temperature directly. It measures **how much thermal infrared light the surface is glowing
+with**, then converts that glow into a temperature. That conversion needs one assumption —
+**how efficiently does this surface radiate?** — and that efficiency is called
+*emissivity*. Water radiates very efficiently and very *consistently* (about 0.99), so
+MODIS's assumption for open water is almost always right. Reed beds, wet mud and dry shore
+soil each radiate differently, and MODIS has to guess which one it's looking at from a
+land-cover map. The `emissivity_error` grade is MODIS saying *"how sure am I that I used
+the right radiating efficiency here?"* For Balaton this is the **least** worrying of the
+four grades — most of our pixels are clean open water — but it's exactly the grade that
+degrades along the shoreline, where a pixel is half water, half reed.
+
+- **Plain:** in focus, right material, small degree-error.
+- **Formal:** the `QC_Day` / `QC_Night` science dataset, decoded into `data_quality`,
+  `emissivity_error`, `lst_error`.
+
+### 4.4 Our own sanity checks
+
+On top of MODIS's report card we add three cheap "is the housekeeping intact" checks —
+these mostly catch fill values and corrupt metadata, not bad weather:
+
+- **raw temperature value** in a physically possible range (rejects the fill value 0 and
+  impossible numbers) — formally, raw DN in `[7500, 65535]`.
+- **overpass time present and sane** — formally, view time in `[0, 240]`.
+- **viewing angle present and sane** — formally, view angle in `[0, 130]`. This one also
+  carries real meaning: a pixel seen from the far edge of the satellite's swath is viewed
+  through a long slanted slice of atmosphere and its footprint is smeared larger, so an
+  extreme angle is genuinely lower quality. Our rule just checks the angle is present and
+  in range rather than penalising oblique views directly.
+
+### 4.5 The pass mark we set — and why not stricter
+
+MODIS grades each pixel; **we** decide which grades we'll accept. Our rule keeps a pixel
+only if it has a real temperature (not cloud, not "failed for another reason"), the
+retrieval is **in focus** (best `data_quality`), the material is known to within ~2%
+(`emissivity_error` at best-or-second-best), the reading is accurate to **within about
+2 K** (`lst_error` at best-or-second-best), and the three housekeeping checks pass.
+Everything else we discard — which turns it into a hole on *our* map even though MODIS
+gave us a number.
+
+**Why not demand a perfect reading?** Because it was tested (`AUDIT-011`, `AUDIT-012`):
+with the strictest possible rule (every grade must be 0 — "within 1 K", "material known
+to within 1%"), **Lake Balaton has essentially zero usable nighttime readings** — 0%
+coverage, every single night, for an entire year of test dates. Allowing the "within 2 K"
+tier recovers about **99% nighttime coverage**, and almost every one of those recovered
+pixels carries the *exact same* quality code:
+
+- **Formal:** at night, **98.7%** of valid-water pixels have quality byte **65**, which
+  decodes to `mandatory_qa = 1` (produced, flagged for a closer look) / `data_quality = 0`
+  (good) / `emissivity_error = 0` (≤ 0.02) / `lst_error = 1` (≤ 2 K). The accepted rule
+  ("candidate C") is: `mandatory_qa ≤ 1 AND data_quality == 0 AND emissivity_error ≤ 1
+  AND lst_error ≤ 1`, plus the provider-range validity checks from §4.4.
+
+The rule is applied **identically to day and night** (`QA-002`). Daytime pixels already
+clear the strict bar easily, so using the same rule for both costs daytime nothing, and
+one rule is simpler to explain and audit than two.
+
+**Why loosen it instead of just accepting "no nighttime data"?** Nighttime lake
 temperature is scientifically important — it's often where the most interesting anomalies
-show up (see the Phase 3 report: February 2024 nights were +5.1°C above normal). Reporting
-"no data, forever, every night" would make the whole nighttime half of the product useless
-for no real gain in accuracy, since the discarded pixels aren't actually bad measurements
-— they just don't meet an overly strict paperwork threshold.
+show up (the Phase 3 report: February 2024 nights were +5.1°C above normal). Reporting
+"no data, forever, every night" would make the whole nighttime half of the product
+useless for no real gain in accuracy — the discarded pixels aren't actually bad
+measurements, they just don't meet an overly strict paperwork threshold.
 
-**The honesty condition that comes with this choice:** every nighttime reading in the
-underlying data explicitly carries what coverage the strict rule *would* have given,
-so nothing is hidden — a future user or reviewer can always see exactly how much
-looser this rule is. The app also reports a **confidence flag** (`ok` / `low` / `none`)
-based on how much of the lake's surface was actually visible that day, so a reading based
-on only a handful of clear pixels is visibly marked as less certain, never presented with
-false confidence.
+### 4.6 The kinds of holes, with an everyday example for each
+
+| What you see on the map | Everyday cause | Formal category |
+|---|---|---|
+| Big blank regions, clean edges | Thick cloud over that part of the lake | `mandatory_qa == 2` (upstream, dominant) |
+| Blank patches on a "clear-looking" day | Thin haze / aerosol / a missing correction input — NASA couldn't retrieve | `mandatory_qa == 3` |
+| The lake cut off along one straight line | The satellite's swath edge clipped the lake, or there was no pass at all that day | no / partial overpass |
+| Scattered single missing pixels on an otherwise full lake | Individual pixels we rejected as too noisy | fails `data_quality` / `emissivity_error` / `lst_error` (~1% at night) |
+| Rare stray gaps | Missing quality byte, or a fill value in the temperature/time/angle | missing QC / provider-range failure |
+
+### 4.7 What the leftover pixels produce — and the honesty flag
+
+We average **whatever accepted pixels remain** into that pass's lake temperature — even
+if only a handful survived. Then we label how much of the lake we actually saw:
+
+- saw **0 pixels** → *"no reading"* (`none`)
+- saw **less than 15%** of the lake (under ~100 of ~700 lake pixels) → **`low`
+  coverage**, the value is still shown but marked with a warning (the `*` in the app)
+- saw **15% or more** → shown normally (`ok`)
+
+*Example:* an August Terra-evening pass with only 25 clear pixels out of ~700 → 3.6% of
+the lake → a temperature is still reported, but flagged `low`, because 3.6% of the lake
+isn't really "the lake."
+
+- **Plain:** a number is always produced if even one pixel survives; the flag tells you
+  how much of the lake stood behind it.
+- **Formal:** `valid_water_fraction` = accepted pixels ÷ ~700; tiers `none` / `low`
+  (`< 0.15`) / `ok`. Night passes are *structurally* low here — averaging only ~10% of
+  the lake even on good nights — which is why the `*` appears so often on the evening and
+  after-midnight rows.
+
+**The honesty condition that comes with all of this:** every nighttime reading in the
+underlying data explicitly carries what coverage the strict rule *would* have given, so
+nothing is hidden — a future user or reviewer can always see exactly how much looser this
+rule is than the textbook one.
 
 ---
 
@@ -345,7 +468,20 @@ Being upfront about what this project does *not* yet claim:
   treated as interchangeable.
 - **QC / quality flags** — extra information a satellite product ships alongside every
   pixel, describing how trustworthy that specific pixel's reading is (e.g. was it
-  cloud-free, was the sensor viewing at a bad angle).
+  cloud-free, was the sensor viewing at a bad angle). In MODIS LST this is a single byte
+  packing four 0–3 grades: `mandatory_qa`, `data_quality`, `emissivity_error`,
+  `lst_error` (see Section 4.3).
+- **Emissivity** — how efficiently a surface radiates thermal infrared light compared to
+  a perfect radiator (which would be 1.0). A satellite measures the *glow*, then needs an
+  assumed emissivity to turn that glow into a temperature. Water's emissivity is high
+  (~0.99) and very stable, so it's well known; mixed land/water shoreline pixels are
+  where the assumption gets shaky. `emissivity_error` is MODIS's own estimate of that
+  uncertainty.
+- **LST** — Land Surface Temperature; for a lake, the temperature of the water *skin*
+  (see *skin temperature*). MODIS's daily products are `MOD11A1` (Terra) and `MYD11A1`
+  (Aqua).
+- **Coverage / valid-water fraction** — the share of the lake's ~700 pixels that gave an
+  accepted reading on a given pass. Drives the `none` / `low` / `ok` confidence flag.
 - **Shifting baseline** — the problem where a reference ("normal") that keeps updating
   itself with recent, already-changed conditions gradually hides the very change you're
   trying to measure.
