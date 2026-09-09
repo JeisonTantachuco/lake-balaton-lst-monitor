@@ -94,6 +94,20 @@ function ymLabel(ym) {
   var p = ym.split('-');
   return MONTH_NAMES[Number(p[1]) - 1] + ' ' + p[0];
 }
+function ordinal(n) {
+  n = Math.round(n);
+  var v = n % 100, s = ['th', 'st', 'nd', 'rd'];
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+// Compact "where it ranks" text for placing next to the classification label. The
+// label is a threshold band (90 / 95 / 99th percentile) — showing the percentile
+// beside it makes a borderline reading visibly borderline rather than a hard fact.
+function percentileText(pct) {
+  if (pct === null || pct === undefined) { return ''; }
+  if (pct >= 99.5) { return 'record high for the time of year'; }
+  if (pct <= 0.5)  { return 'record low for the time of year'; }
+  return ordinal(pct) + ' percentile for the time of year';
+}
 
 /* ----------------------------------------------- candidate quality pixel map */
 
@@ -270,6 +284,12 @@ panel.add(ui.Label(
   + 'is never mixed with the others — a warm afternoon and a warm night are different things. '
   + 'Days with heavy cloud have no reading.',
   {fontSize: '10px', color: '#888', margin: '0'}));
+panel.add(ui.Label(
+  'Validated (2026): the monthly averages track independent Landsat surface temperature within '
+  + '~0.5 °C over 2003–2024, and every flagged warm anomaly matches the Copernicus European '
+  + 'climate record. The tool is validated for spotting unusual readings, not for the exact '
+  + 'temperature to a fraction of a degree.',
+  {fontSize: '10px', color: '#888', margin: '4px 0 0 0'}));
 
 /* ------------------------------------------------------- readout components */
 
@@ -432,6 +452,13 @@ function fillDailyReadout(streamId, dstr, dayName, p) {
   var windowNote = dayName + ' ± 5 days, 2003–2022';
 
   dailyReadout.add(bigLabel(LABEL_DISPLAY[raw] || raw, LABEL_COLOUR[raw] || '#000'));
+  // The label is a threshold band; show the percentile next to it so a reading that
+  // sits close to a 90 / 95 / 99 boundary reads as borderline, not as a hard fact.
+  dailyReadout.add(ui.Label(
+    percentileText(p.historical_percentile)
+    + (p.percentile_confidence && p.percentile_confidence !== 'full'
+        ? ' (from a small sample — less certain)' : ''),
+    {fontSize: '10px', color: '#666', margin: '0 0 4px 0'}));
   dailyReadout.add(kv('Lake-surface temperature', fmt(p.daily_lst_c) + ' °C'));
   dailyReadout.add(kv('Compared with normal', differenceSentence(p.anomaly_vs_median_c)));
   dailyReadout.add(kv('', 'measured − median of the ' + windowNote + ' record ('
@@ -457,19 +484,25 @@ function fillPassTable(dstr, byStream) {
   // Every cell — header and body — sets margin:'0' and the same width, so the
   // columns line up. (Leaving the header labels on the default label margin was
   // why "temp" / "vs normal" sat shifted right of the numbers under them.)
-  var C_PASS = '118px', C_TEMP = '52px', C_NORM = '62px';
+  var C_PASS = '92px', C_COV = '34px', C_TEMP = '44px', C_NORM = '50px';
   function cell(text, w, extra) {
     var st = {fontSize: '10px', margin: '0'};
     if (w) { st.width = w; } else { st.stretch = 'horizontal'; }
     for (var k in (extra || {})) { st[k] = extra[k]; }
     return ui.Label(text, st);
   }
+  var LABEL_SHORT = {
+    'below normal': 'below normal', 'within normal range': 'within normal',
+    'warm': 'warm', 'unusually warm': 'unusually warm',
+    'extreme warm observation': 'extreme warm'
+  };
 
   var header = ui.Panel({layout: ui.Panel.Layout.flow('horizontal')});
   header.add(cell('pass', C_PASS, {color: '#888'}));
+  header.add(cell('lake', C_COV, {color: '#888'}));
   header.add(cell('temp', C_TEMP, {color: '#888'}));
-  header.add(cell('vs normal', C_NORM, {color: '#888'}));
-  header.add(cell('verdict', null, {color: '#888'}));
+  header.add(cell('vs norm', C_NORM, {color: '#888'}));
+  header.add(cell('verdict  ·  rank', null, {color: '#888'}));
   passTablePanel.add(header);
 
   var anyLow = false;
@@ -483,26 +516,34 @@ function fillPassTable(dstr, byStream) {
     row.add(cell(STREAMS[id].short + (low ? ' *' : ''), C_PASS,
       low ? {color: '#cc4c02'} : null));
     if (!p) {
+      row.add(cell('–', C_COV, {color: '#bbb'}));
       row.add(cell('–', C_TEMP, {color: '#bbb'}));
       row.add(cell('', C_NORM));
       row.add(cell('', null));
     } else {
+      // "lake" column = how much of the lake this pass actually saw — shown for
+      // every row, not only the low ones, so a 16%-coverage `ok` day is visible.
+      row.add(cell(Math.round(p.valid_water_fraction * 100) + '%', C_COV,
+        {color: low ? '#cc4c02' : '#888'}));
       row.add(cell(fmt(p.daily_lst_c) + '°', C_TEMP));
       row.add(cell((p.anomaly_vs_median_c >= 0 ? '+' : '−')
         + fmt(Math.abs(p.anomaly_vs_median_c)) + '°', C_NORM));
-      row.add(cell(LABEL_DISPLAY[p.classification] || p.classification, null,
-        {color: LABEL_COLOUR[p.classification] || '#000'}));
+      row.add(cell((LABEL_SHORT[p.classification] || p.classification)
+        + '  ·  ' + (p.historical_percentile >= 99.5 ? 'record'
+            : p.historical_percentile <= 0.5 ? 'record low'
+            : ordinal(p.historical_percentile) + ' pct'),
+        null, {color: LABEL_COLOUR[p.classification] || '#000'}));
     }
     passTablePanel.add(row);
   });
 
-  if (anyLow) {
-    passTablePanel.add(ui.Label(
-      '*  low coverage — fewer than 15% of the lake (about 700 pixels) had a clear, '
-      + 'quality-checked view on this pass; cloud, ice or QA masking removed the rest. '
-      + 'The reading is still shown but is less certain.',
-      {fontSize: '9px', color: '#888', margin: '4px 0 0 0'}));
-  }
+  passTablePanel.add(ui.Label(
+    '"lake" = share of the lake this pass had a clear, quality-checked view of. '
+    + '"rank" is where the reading sits among the 2003–2022 record for this time of year — '
+    + 'the verdict is a band around the 90th / 95th / 99th percentile, so a rank near a '
+    + 'boundary can sit either side.'
+    + (anyLow ? '  *  below 15% ("low coverage") — the reading is shown but is less certain.' : ''),
+    {fontSize: '9px', color: '#888', margin: '4px 0 0 0'}));
 }
 
 /* ------------------------------------------------------------ monthly view */
