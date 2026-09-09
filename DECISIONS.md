@@ -543,13 +543,40 @@ The following entries are unresolved. Their presence here does not authorize imp
 
 ### VAL-001 — Validation acceptance criteria
 
-- **Date:** 2026-08-13
-- **Status:** proposed
-- **Decision:** Define validation acceptance criteria and the response if in-situ data cannot be obtained.
-- **Rationale:** Completion and scientific confidence require explicit acceptance rules.
-- **Evidence or source:** `PROJECT_CONTEXT.md`, open decision 12.
-- **Approval provenance:** Not approved.
-- **Affected files or components:** Validation plan, tests, reports, release criteria.
+- **Date:** 2026-08-13 (criteria approved, study executed, and **VAL-001 approved** 2026-09-09)
+- **Status:** **approved (2026-09-09).** Validation study complete — all 7 criteria pass.
+  Label-sensitivity scoring resolved by the user (option a: pass + documented limitation + "show
+  the percentile next to the label" in the app). Product validated **for relative anomaly
+  monitoring, not absolute calibration.**
+- **Decision:** Define validation acceptance criteria and the response if in-situ data cannot be
+  obtained. Criteria set (C1–C7) in `docs/PHASE_5_VALIDATION_SPECIFICATION.md`; rationale in
+  `docs/VAL_001_PROPOSAL.md`; results in `docs/PHASE_5_VALIDATION_REPORT.md`.
+- **What was decided (2026-09-09, user chose every recommended option in the proposal §8):**
+  no in-situ data is available or expected, so the six checks C1–C6 are the validation of record
+  and establish the product **for relative anomaly monitoring, not absolute calibration**; C7
+  (in-situ match-up) is specified but dormant. C3's specified comparator (ESA CCI / Copernicus
+  LWST) is not in the Earth Engine catalogue — substituted, with user sign-off, by Landsat C2 L2
+  surface temperature (primary) + ERA5-Land `lake_mix_layer_temperature` (context).
+- **Result:** C1 (climatology physically plausible), C2 (cross-stream r ≥ 0.98), C3 (Landsat vs
+  our Terra-morning, 258 months: bias −0.53 °C, RMSE 1.83 °C, r 0.985), C4 (every flagged anomaly
+  echoed by Copernicus C3S), C5a (±3/±7-day window: °C anomaly stable), C5b (463 m erosion and
+  strict QC: no systematic anomaly bias), C6 (coverage flag isolates every severe cloud artefact)
+  — **all pass.** Three documented limitations: ~6–8 % adjacent-tier label flips at percentile
+  boundaries (C5a/C5b); a 9-day (0.25 %) borderline-coverage spot-check set (C6); strict QC is not
+  a viable alternative rule for this lake (confirms `QA-002`).
+- **Label-sensitivity resolution (user, 2026-09-09):** option (a) — C5a/C5b pass on anomaly
+  stability; the adjacent-tier label sensitivity is a documented limitation; the app will show the
+  percentile number next to the classification label. `METH-004` unchanged.
+- **Follow-through (not yet done):** one-line "validated" note in `app/balaton_anomaly_app.js`
+  About panel + `docs/PROJECT_DECISIONS_EXPLAINED.md` + `docs/THE_BALATON_METHOD.html`; show the
+  percentile next to the label and the per-day coverage % in the app.
+- **Evidence or source:** `PROJECT_CONTEXT.md` open decision 12; the three Phase 5 docs;
+  `tools/run_validation_offline.py`, `tools/run_validation_ee.py`; `AUDIT-011`; Copernicus C3S
+  bulletins; Li, Somogyi & Tóth (2024).
+- **Approval provenance:** Criteria, C3-substitution, label-scoring, and final `VAL-001` approval
+  all given by the user 2026-09-09 (through the coordinator).
+- **Affected files or components:** the three Phase 5 docs, the two validation tools; on
+  follow-through, `app/balaton_anomaly_app.js` + the two explainer docs.
 - **Superseded decision:** None.
 
 ### SCOPE-003 — Six-week minimum viable outputs
