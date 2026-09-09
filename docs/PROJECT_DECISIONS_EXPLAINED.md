@@ -364,6 +364,15 @@ method for detecting sustained multi-day events is built and approved — a sing
 is not the same scientific claim as a persistent heatwave, and the wording is chosen to
 never overstate what one day's reading can support.
 
+**The label is a hard cut, so the app also shows the percentile.** Validation (`VAL-001`,
+Section 11) found that about 7 % of well-observed days sit right on a band boundary — e.g.
+at the 94.8th percentile, one notch below the "unusually warm" line. A small, legitimate
+change to the method (a ±3-day window instead of ±5) can nudge such a day across, flipping
+its word-label even though its temperature barely moved. It is always a *single* notch,
+never a jump. To keep the label from reading as a hard fact, the app now prints the
+percentile next to it ("95th percentile · unusually warm"), so a borderline reading looks
+borderline. The bands themselves (`METH-004`) were not changed.
+
 ---
 
 ## 8. Why the four satellite passes are never merged into one number
@@ -430,20 +439,60 @@ feedback while testing it:
   from the user-facing app text** — they're useful for this document and for `DECISIONS.md`,
   but meaningless to anyone opening the public app, so the app instead explains things in
   the same plain language used throughout this document.
+- **The classification label always appears with its percentile next to it**, and the
+  four-pass table shows, for every pass, what share of the lake that pass actually saw —
+  both added after validation (Section 11) so a reading near a threshold, or one built
+  from thin coverage, is visibly so rather than presented as a clean fact.
 
 ---
 
-## 11. What's still open, and what's explicitly future work
+## 11. How the product was validated (`VAL-001`)
+
+No thermometer-in-the-water (in-situ) data for Lake Balaton was available, so the product
+was checked seven other ways (full detail in `docs/PHASE_5_VALIDATION_REPORT.md`). All
+seven passed, and `VAL-001` was **approved in September 2026**.
+
+- **It behaves like a real lake.** The 2003–2022 "normal" is a smooth annual cycle — near
+  0 °C in winter, ~24 °C in July — and daytime is warmer than night in summer for every
+  satellite. The four passes agree with each other where physics says they should
+  (correlation ≥ 0.98).
+- **An independent instrument agrees with it.** Our monthly averages were compared against
+  **Landsat** surface temperature — a *different* thermal sensor — for every month from
+  2003 to 2024 (258 months). The two agree to within about **0.5 °C on average** and move
+  together at **99 % correlation**. A weather model (ERA5-Land) tracks it too. (Landsat and
+  ERA5-Land were used here only as measuring sticks — they are not part of the product;
+  that would be `DATA-005` / `DATA-006` below.)
+- **The flagged anomalies match the official record.** Every standout the product found —
+  February 2024, March 2024, summer 2024, 2024 as the warmest year — lines up with the
+  Copernicus Climate Change Service's European climate bulletins.
+- **The result doesn't depend on arbitrary choices.** Re-running with a ±3 or ±7-day
+  window instead of ±5, or a stricter pixel filter, or a trimmed shoreline, moves the
+  anomaly by only a fraction of a degree.
+- **The coverage flag works.** Every one of the ~200 wild single-day spikes built from a
+  handful of cloud-gap pixels is correctly marked "low coverage".
+
+**What the product is validated *for*:** telling you whether a reading is unusual for its
+time of year, and how much to trust it — a *relative* claim. It is **not** calibrated to
+give the exact temperature to a fraction of a degree; that would need in-situ data.
+
+**Documented limitations that travel with it:** about 7 % of well-observed days sit right
+on a percentile boundary, so their word-label ("warm" vs "unusually warm") could tip
+either way — which is why the app now shows the percentile number next to the label. A
+handful of borderline-coverage days (0.25 % of the record) are flagged for a manual look.
+And the strict pixel filter, tested here, is confirmed to be the wrong choice for this
+lake — exactly as `QA-002` decided.
+
+---
+
+## 11b. What's still open, and what's explicitly future work
 
 Being upfront about what this project does *not* yet claim:
 
-- **Validation (`VAL-001`) is still an open decision** — the plan is to cross-check the
-  four streams against each other, against the Li et al. (2024) reference study, and
-  against published literature ranges, plus in-situ measurements *if* any become
-  available. This hasn't been finalized or run yet.
 - **Landsat hotspot inspection and the ERA5-Land weather-context panel** (`DATA-005`,
   `DATA-006`) are approved *extensions*, attempted only after the core product above is
-  solid — not part of the guaranteed six-week deliverable (`SCOPE-003`).
+  solid — not part of the guaranteed six-week deliverable (`SCOPE-003`). (This is the
+  *real* use of Landsat and ERA5-Land — building them into the app as features — as
+  opposed to Section 11's use of them only to check the product.)
 - **Basin-level (not whole-lake) results, littoral/pelagic zones, and any multi-day
   "heatwave" detector** are documented as legitimate future work, explicitly not claimed
   now, because the geometry or the validated method they'd need doesn't exist yet.

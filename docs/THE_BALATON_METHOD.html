@@ -262,7 +262,8 @@
       <li><a href="#s8"><span class="n">08</span>Why streams stay separate</a></li>
       <li><a href="#s9"><span class="n">09</span>Monthly summaries</a></li>
       <li><a href="#s10"><span class="n">10</span>The public app</a></li>
-      <li><a href="#s11"><span class="n">11</span>Open &amp; future work</a></li>
+      <li><a href="#s11"><span class="n">11</span>How it was validated</a></li>
+      <li><a href="#s11b"><span class="n">11b</span>Open &amp; future work</a></li>
       <li><a href="#s12"><span class="n">12</span>Glossary</a></li>
       <li><a href="#s13"><span class="n">13</span>The formal record</a></li>
     </ol>
@@ -557,6 +558,16 @@
         unless a properly validated method for sustained multi-day events exists — one warm day is a
         different, smaller scientific claim than a persistent heatwave, and the wording never
         overstates what a single reading supports.</p>
+      <div class="callout">
+        <span class="k">The label is a hard cut — so the app shows the percentile too</span>
+        <p>Validation (§11) found ~7&nbsp;% of well-observed days sit right on a band boundary — say
+          the 94.8th percentile, one notch below &quot;unusually warm&quot;. A legitimate method
+          tweak (a &plusmn;3-day window instead of &plusmn;5) can nudge such a day across, flipping
+          the word even though the temperature barely moved — always by a single notch, never a
+          jump. The app now prints the percentile beside the label
+          (&quot;95th percentile&nbsp;·&nbsp;unusually warm&quot;) so a borderline reading looks
+          borderline. The bands themselves were not changed.</p>
+      </div>
     </section>
 
     <section class="doc" id="s8">
@@ -607,19 +618,58 @@
           see where it sits within that fixed scale, without ever renormalising the colours themselves.</li>
         <li>Every internal decision code you see as a chip on this page is deliberately absent from
           the app itself — useful here, meaningless to someone just checking today's temperature.</li>
+        <li>The classification label always shows its <strong>percentile</strong> next to it, and the
+          four-pass table shows <strong>what share of the lake each pass saw</strong> — both added
+          after validation (§11) so a reading near a threshold, or one from thin coverage, looks that
+          way rather than reading as a clean fact.</li>
       </ul>
     </section>
 
     <section class="doc" id="s11">
-      <div class="section-head"><span class="num">11</span><h2>Open and future work</h2></div>
-      <div class="chips"><span class="chip">VAL-001</span><span class="chip">DATA-005</span><span class="chip">DATA-006</span><span class="chip">SCOPE-001</span><span class="chip">SCOPE-003</span></div>
-      <p>Being upfront about what isn't claimed yet:</p>
+      <div class="section-head"><span class="num">11</span><h2>How it was validated</h2></div>
+      <div class="chips"><span class="chip">VAL-001</span></div>
+      <p>No thermometer-in-the-water data for Lake Balaton was available, so the product was
+        checked seven other ways. All seven passed; <strong>VAL-001 was approved in September
+        2026</strong>.</p>
       <ul>
-        <li><strong>Validation</strong> is still an open decision — cross-checking the four streams
-          against each other, against Li et al. (2024), and against published ranges, plus in-situ
-          data if any becomes available. Not finalised or run yet.</li>
+        <li><strong>It behaves like a real lake.</strong> The 2003&ndash;2022 &quot;normal&quot; is a
+          smooth annual cycle (~0&nbsp;°C in winter, ~24&nbsp;°C in July), daytime warmer than night in
+          summer, and the four passes correlate with each other at r&nbsp;&ge;&nbsp;0.98.</li>
+        <li><strong>An independent instrument agrees.</strong> Our monthly averages were compared
+          against <strong>Landsat</strong> surface temperature &mdash; a different thermal sensor
+          &mdash; for all 258 months from 2003 to 2024. They agree to within ~0.5&nbsp;°C on average
+          and move together at 99&nbsp;% correlation. A weather model (ERA5-Land) tracks it too.
+          <em>Landsat and ERA5-Land were used here only as measuring sticks &mdash; they are not part
+          of the product.</em></li>
+        <li><strong>The flagged anomalies match the record.</strong> Every standout &mdash; February
+          2024, March 2024, summer 2024, 2024 as the warmest year &mdash; lines up with the
+          Copernicus European climate bulletins.</li>
+        <li><strong>The answer doesn't hinge on arbitrary choices.</strong> A &pm;3 or &pm;7-day
+          window instead of &pm;5, a stricter pixel filter, or a trimmed shoreline each move the
+          anomaly by only a fraction of a degree.</li>
+        <li><strong>The coverage flag works.</strong> Every one of the ~200 wild single-day spikes
+          built from a handful of cloud-gap pixels is correctly marked &quot;low coverage&quot;.</li>
+      </ul>
+      <div class="callout">
+        <span class="k">What it is validated for</span>
+        <p>Telling you whether a reading is unusual for its time of year, and how much to trust it
+          &mdash; a <em>relative</em> claim. It is not calibrated to the exact temperature to a
+          fraction of a degree; that would need in-situ data. Documented limitations: ~7&nbsp;% of
+          well-observed days sit on a percentile boundary (so the app now shows the percentile next
+          to the label); a handful of borderline-coverage days are flagged for a manual look; and
+          the strict pixel filter is confirmed to be the wrong choice for this lake, as
+          <span class="mono">QA-002</span> decided.</p>
+      </div>
+    </section>
+
+    <section class="doc" id="s11b">
+      <div class="section-head"><span class="num">11b</span><h2>Open and future work</h2></div>
+      <div class="chips"><span class="chip">DATA-005</span><span class="chip">DATA-006</span><span class="chip">SCOPE-001</span><span class="chip">SCOPE-003</span></div>
+      <ul>
         <li><strong>Landsat</strong> hotspot inspection and an <strong>ERA5-Land</strong> weather
-          context panel are approved extensions, attempted only once the core product above is solid.</li>
+          context panel are approved extensions, attempted only once the core product is solid. This
+          is the <em>real</em> use of Landsat and ERA5-Land &mdash; building them in as features
+          &mdash; as opposed to Section&nbsp;11's use of them only to check the product.</li>
         <li><strong>Basin-level results</strong>, littoral/pelagic zones, and any multi-day
           &quot;heatwave&quot; detector are documented future work — not claimed now, because the
           geometry or validated method they'd need doesn't exist yet.</li>
