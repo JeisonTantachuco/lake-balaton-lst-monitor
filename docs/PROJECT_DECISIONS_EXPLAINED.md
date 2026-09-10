@@ -32,15 +32,26 @@ overselling the result. (`SCI-001`)
 ## 2. Where the temperature numbers come from
 
 **Choice:** NASA's MODIS instruments on two satellites — **Terra** (crosses Balaton
-around mid-morning and again at night) and **Aqua** (crosses around early afternoon and
-again after midnight). Each satellite pass is a *separate* measurement stream. (`DATA-001`)
+mid-morning and again in the evening) and **Aqua** (crosses in the pre-dawn hours and
+again in the early afternoon). Four passes in all. Each is a *separate* measurement
+stream. (`DATA-001`)
+
+**The four passes and when they happen** (Hungarian clock time; winter is about an hour
+earlier), in the order they fall on a date:
+
+| Pass | Roughly | Note |
+|---|---|---|
+| Aqua — pre-dawn | ~03:00 | taken in the small hours *of* that date, so it is the **first** of the four, not the last |
+| Terra — mid-morning | ~11:00 | |
+| Aqua — early afternoon | ~14:00 | usually the warmest |
+| Terra — evening | ~21:30 | |
 
 **Why these two satellites, and why keep them separate:** they're the only sensors that
-give a long, consistent, twice-daily record of the lake's actual surface temperature
-going back over 20 years. Morning conditions, afternoon conditions, and nighttime
-conditions are physically different things — a lake heats up during the day and cools at
-night, so mixing "how warm was it at 1 pm" with "how warm was it at 1 am" into one number
-would hide the real signal rather than reveal it. Section 8 explains this in more depth.
+give a long, consistent, multi-times-daily record of the lake's actual surface temperature
+going back over 20 years. Pre-dawn, morning, afternoon and evening conditions are
+physically different things — a lake heats up during the day and cools overnight, so mixing
+"how warm was it at 2 pm" with "how warm was it at 3 am" into one number would hide the
+real signal rather than reveal it. Section 8 explains this in more depth.
 
 **Two more data sources are approved for *later*, not yet built into the app:**
 - **Landsat** (`DATA-002`) — sharper images (30 m instead of MODIS's 1 km) for zooming
@@ -260,8 +271,8 @@ isn't really "the lake."
   how much of the lake stood behind it.
 - **Formal:** `valid_water_fraction` = accepted pixels ÷ ~700; tiers `none` / `low`
   (`< 0.15`) / `ok`. Night passes are *structurally* low here — averaging only ~10% of
-  the lake even on good nights — which is why the `*` appears so often on the evening and
-  after-midnight rows.
+  the lake even on good nights — which is why the `*` appears so often on the pre-dawn and
+  evening rows.
 
 **The honesty condition that comes with all of this:** every nighttime reading in the
 underlying data explicitly carries what coverage the strict rule *would* have given, so
@@ -377,10 +388,10 @@ borderline. The bands themselves (`METH-004`) were not changed.
 
 ## 8. Why the four satellite passes are never merged into one number
 
-**Choice (`METH-006`):** Terra-morning, Aqua-afternoon, Terra-evening/night, and
-Aqua-after-midnight are always shown **side by side**, each with its own temperature,
-its own anomaly, its own percentile, and its own label. There is **no** single combined
-"the lake's temperature today" number.
+**Choice (`METH-006`):** Aqua-pre-dawn, Terra-morning, Aqua-afternoon and Terra-evening
+are always shown **side by side**, each with its own temperature, its own anomaly, its own
+percentile, and its own label. There is **no** single combined "the lake's temperature
+today" number.
 
 **Why not average them together?** They aren't measuring the same thing. A lake's surface
 genuinely warms through the day and cools at night — a mild, unremarkable afternoon and a
@@ -443,6 +454,18 @@ feedback while testing it:
   four-pass table shows, for every pass, what share of the lake that pass actually saw —
   both added after validation (Section 11) so a reading near a threshold, or one built
   from thin coverage, is visibly so rather than presented as a clean fact.
+- **The four passes are shown in the order they actually happen** — Aqua pre-dawn (~03:00
+  Hungarian time, the *first* reading of the date, not the last), Terra mid-morning
+  (~11:00), Aqua early afternoon (~14:00), Terra evening (~21:30). Times are the mean
+  measured overpass times over the lake, in Hungarian clock time (an hour earlier in
+  winter); the old labels were rounded nominals and off by up to ~1.5 h.
+- **A "Weather" panel** (single-day view) shows the ERA5-Land reanalysis conditions for
+  the selected pass — air temperature and wind at the overpass hour, plus the whole day's
+  sunshine and rain. It is context to help explain *why* a reading was unusual (calm and
+  sunny lets the surface skin run hot or, before dawn, cold; wind mixes it away; cloud and
+  cold air pull it toward the air). It is **never** a measurement of the water and never
+  replaces the satellite value (`DATA-003`). Sunshine is shown as **"% of a clear day"**
+  (see the glossary) so it is comparable between a dull July day and a bright February one.
 
 ---
 
@@ -488,11 +511,12 @@ lake — exactly as `QA-002` decided.
 
 Being upfront about what this project does *not* yet claim:
 
-- **Landsat hotspot inspection and the ERA5-Land weather-context panel** (`DATA-005`,
-  `DATA-006`) are approved *extensions*, attempted only after the core product above is
-  solid — not part of the guaranteed six-week deliverable (`SCOPE-003`). (This is the
-  *real* use of Landsat and ERA5-Land — building them into the app as features — as
-  opposed to Section 11's use of them only to check the product.)
+- **The ERA5-Land weather panel** (`DATA-006`) is now **built** (v1 — see Section 10 and
+  `docs/DATA_006_PROPOSAL.md`); a "vs normal" weather comparison and a monthly weather
+  block are the obvious next additions.
+- **Landsat hotspot inspection** (`DATA-005`) is still an approved *extension*, not started
+  — sharper 30 m thermal images to zoom into a specific hot day. (Section 11 used Landsat
+  only to *check* the product; this would build it in as a feature.)
 - **Basin-level (not whole-lake) results, littoral/pelagic zones, and any multi-day
   "heatwave" detector** are documented as legitimate future work, explicitly not claimed
   now, because the geometry or the validated method they'd need doesn't exist yet.
@@ -531,6 +555,15 @@ Being upfront about what this project does *not* yet claim:
   (Aqua).
 - **Coverage / valid-water fraction** — the share of the lake's ~700 pixels that gave an
   accepted reading on a given pass. Drives the `none` / `low` / `ok` confidence flag.
+- **"% of a clear day"** (weather panel, sunshine) — the day's measured solar energy at
+  the ground (from ERA5-Land) divided by the *cloudless maximum* for that date and the
+  lake's latitude, then ×100. The cloudless maximum is calculated, not measured: from Sun
+  geometry (latitude + day of year → energy at the top of the atmosphere over the day),
+  then × 0.75 for what a clean, cloudless atmosphere lets through — the standard FAO-56
+  clear-sky formula. So "74%" means clouds blocked about a quarter of the available
+  sunshine that day. Comparable across seasons, unlike the raw kWh/m². Clamped to 100 % in
+  the app (a genuinely clear day can compute a little over). Rough by ±a few %, not a
+  measurement.
 - **Shifting baseline** — the problem where a reference ("normal") that keeps updating
   itself with recent, already-changed conditions gradually hides the very change you're
   trying to measure.
