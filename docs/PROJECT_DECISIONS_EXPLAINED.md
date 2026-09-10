@@ -435,6 +435,13 @@ feedback while testing it:
 - **The whole-month view uses its own Month selector**, separate from the daily
   calendar, because every day inside one month gives the *same* monthly summary — there
   was no reason to force a day-level choice onto a month-level question.
+- **The whole-month map is a bias-corrected monthly composite.** A naïve per-pixel
+  monthly average runs ~0.5 °C warm, because warm days over Balaton are clearer and so
+  contribute more pixels ("clear-sky bias"). Instead, each day's pixels first have that
+  day's own lake-average subtracted (leaving only each pixel's *position* relative to the
+  lake), those patterns are composited, and the day-weighted monthly figure (the number
+  in the readout) is added back. The map then shows the within-lake warm/cool pattern
+  *and* its overall level matches the headline number to ~0.05 °C.
 - **Client-side caching by month and by year**: once a month's (or year's) data has been
   fetched from Earth Engine, browsing within that same month/year re-uses it instantly
   instead of re-querying — only the actual satellite image on the map still needs a fresh
