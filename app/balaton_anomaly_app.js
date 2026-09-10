@@ -670,7 +670,7 @@ function updateMonthly() {
   loadYear(year, function (byStream) {
     var p = byStream[streamId].byMonth[ym];
     fillMonthlyReadout(streamId, monthName, p);
-    drawMonthlyMap(streamId, p);
+    drawMonthlyMap();
     drawMonthlySeriesChart(monthlyChartPanel, byStream[streamId].list,
       year + ' — ' + STREAMS[streamId].short, ym);
   });
@@ -715,23 +715,18 @@ function fillMonthlyReadout(streamId, monthName, p) {
   monthlyReadout.add(kv('Biggest single-day jump',
     '+' + fmt(p.max_anomaly_vs_median_c) + ' °C on ' + p.max_anomaly_vs_median_date));
   monthlyReadout.add(ui.Label(
-    'The map shows the satellite pixels from that warmest day (' + p.hottest_observation_date
-    + ') — a single day, not a monthly average.',
+    'For a pixel map of any single day (e.g. ' + p.hottest_observation_date
+    + '), switch to the single-day view.',
     {fontSize: '11px', color: '#999', margin: '3px 0 0 0'}));
 }
 
-function drawMonthlyMap(streamId, p) {
-  var d = p && p.hottest_observation_date;
-  if (!d) { setPixelLayer(null); updateLegend(null); return; }
-  var s = STREAMS[streamId];
-  var start = ee.Date(d);
-  var col = ee.ImageCollection(s.col).filterDate(start, start.advance(1, 'day'));
-  col.size().evaluate(function (m) {
-    if (!m) { setPixelLayer(null); updateLegend(null); return; }
-    var lstC = acceptedLstC(ee.Image(col.first()), s).clip(LAKE_GEOM);
-    setPixelLayer(lstC, s.short + ' — warmest day ' + d);   // fixed LST_VIS colour scale
-    computeLstRange(lstC, updateLegend);                    // informational range only
-  });
+// The whole-month view is about the monthly numbers and the day-by-day chart, not
+// a picture — a monthly-average raster would need per-pixel compositing and would
+// blur the detail, and showing one day's pixels (the warmest) misread as a monthly
+// average. So the map just shows the lake outline; pixel maps live in the daily view.
+function drawMonthlyMap() {
+  setPixelLayer(null);
+  updateLegend(null);
 }
 
 /* -------------------------------------------------------- shared line chart */
@@ -922,6 +917,7 @@ function refresh() {
   monthGroup.style().set('shown', !isDaily);
   monthlyReadout.style().set('shown', !isDaily);
   monthlyChartPanel.style().set('shown', !isDaily);
+  legend.style().set('shown', isDaily);   // no pixel map in the monthly view
   if (isDaily) { updateDaily(); } else { updateMonthly(); }
 }
 
