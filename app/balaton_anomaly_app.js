@@ -670,7 +670,7 @@ function updateMonthly() {
   loadYear(year, function (byStream) {
     var p = byStream[streamId].byMonth[ym];
     fillMonthlyReadout(streamId, monthName, p);
-    drawMonthlyMap(streamId, ym);
+    drawMonthlyMap(streamId, ym, p && p.state === 'reported' ? p.monthly_mean_lst_c : null);
     drawMonthlySeriesChart(monthlyChartPanel, byStream[streamId].list,
       year + ' — ' + STREAMS[streamId].short, ym);
   });
@@ -715,23 +715,36 @@ function fillMonthlyReadout(streamId, monthName, p) {
   monthlyReadout.add(kv('Biggest single-day jump',
     '+' + fmt(p.max_anomaly_vs_median_c) + ' °C on ' + p.max_anomaly_vs_median_date));
   monthlyReadout.add(ui.Label(
-    'Map: this month averaged pixel by pixel over its clear days — it shows where the lake ran '
-    + 'warmer or cooler. Blank = never seen clearly. It weights each pixel equally, so its overall '
-    + 'level can sit ~0.5 °C above the day-weighted figure above.',
+    'Map: this month pixel by pixel — where the lake ran warmer or cooler — rescaled so its '
+    + 'overall level matches the figure above. Blank areas were never seen clearly.',
     {fontSize: '11px', color: '#999', margin: '3px 0 0 0'}));
 }
 
-// Whole-month view: a per-pixel monthly MEAN — every clear, quality-checked day of
-// the month for this pass, averaged pixel by pixel. This is the spatial picture
-// behind the "Average lake surface" number. Pixels never seen clearly stay blank.
-function drawMonthlyMap(streamId, ym) {
+// Whole-month view: a per-pixel monthly mean of every clear, quality-checked day
+// of the month — but rescaled so its overall level equals the day-weighted figure
+// on the left, not the pixel-weighted composite (which runs ~0.5 °C warm because
+// warm days are clearer and contribute more pixels). Method: for each day, remove
+// that day's own lake mean so only each pixel's position relative to the lake is
+// left; composite those; add the day-weighted monthly figure back. Blank = a pixel
+// never seen clearly.
+function drawMonthlyMap(streamId, ym, monthlyMeanC) {
+  if (monthlyMeanC === null || monthlyMeanC === undefined) {
+    setPixelLayer(null); updateLegend(null); return;
+  }
   var s = STREAMS[streamId];
   var start = ee.Date(ym + '-01');
   var col = ee.ImageCollection(s.col).filterDate(start, start.advance(1, 'month'));
   col.size().evaluate(function (n) {
     if (!n) { setPixelLayer(null); updateLegend(null); return; }
-    var meanC = col.map(function (img) { return acceptedLstC(ee.Image(img), s); })
-      .mean().clip(LAKE_GEOM);
+    var pattern = col.map(function (img) {
+      var lstC = acceptedLstC(ee.Image(img), s);
+      var dayMean = ee.Dictionary(lstC.reduceRegion({
+        reducer: ee.Reducer.mean(), geometry: LAKE_GEOM, scale: 1000,
+        maxPixels: 1e7, bestEffort: true})).get('lst_c');
+      return lstC.subtract(ee.Number(ee.Algorithms.If(dayMean, dayMean, 0)))
+        .toFloat().rename('lst_c');
+    }).mean();
+    var meanC = pattern.add(monthlyMeanC).toFloat().clip(LAKE_GEOM);
     setPixelLayer(meanC, s.short + ' — ' + ymLabel(ym) + ' mean');   // fixed LST_VIS scale
     computeLstRange(meanC, updateLegend);
   });
