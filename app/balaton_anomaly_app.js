@@ -694,11 +694,15 @@ function fillMonthlyReadout(streamId, monthName, p) {
     + ' °C   (median;  the mean gives ' + signed(p.monthly_mean_anomaly_vs_mean_c) + ' °C)'));
   monthlyReadout.add(ui.Label('"normal" = the 2003–2022 median for this calendar month',
     {fontSize: '11px', color: '#999', margin: '1px 0 4px 0'}));
-  monthlyReadout.add(kv('Clear days used', p.valid_day_count + ' of ' + p.calendar_day_count
-    + (p.low_coverage_day_count > 0 ? ' (' + p.low_coverage_day_count + ' low coverage)' : '')
-    + (typeof p.mean_valid_water_fraction === 'number'
-        ? ' — ~' + (p.mean_valid_water_fraction * 100).toFixed(0) + '% of the lake seen on a clear day'
-        : '')));
+  // Two different things: how many DAYS of the month had a reading (temporal),
+  // and how much of the LAKE those readings covered on average (spatial).
+  monthlyReadout.add(kv('Days with a reading', p.valid_day_count + ' of ' + p.calendar_day_count
+    + (p.low_coverage_day_count > 0 ? '   ·   ' + p.low_coverage_day_count + ' low-coverage' : '')));
+  if (typeof p.mean_valid_water_fraction === 'number') {
+    monthlyReadout.add(kv('Lake seen, per reading',
+      '~' + (p.mean_valid_water_fraction * 100).toFixed(0)
+      + '% of the ~700 pixels, averaged over those days'));
+  }
   if (p.low_coverage_day_count >= p.valid_day_count && p.valid_day_count > 0) {
     monthlyReadout.add(ui.Label(
       'Every clear day this month saw under 15% of the lake — this summary rests on very thin '
@@ -710,6 +714,10 @@ function fillMonthlyReadout(streamId, monthName, p) {
     fmt(p.hottest_observation_lst_c) + ' °C on ' + p.hottest_observation_date));
   monthlyReadout.add(kv('Biggest single-day jump',
     '+' + fmt(p.max_anomaly_vs_median_c) + ' °C on ' + p.max_anomaly_vs_median_date));
+  monthlyReadout.add(ui.Label(
+    'The map shows the satellite pixels from that warmest day (' + p.hottest_observation_date
+    + ') — a single day, not a monthly average.',
+    {fontSize: '11px', color: '#999', margin: '3px 0 0 0'}));
 }
 
 function drawMonthlyMap(streamId, p) {
