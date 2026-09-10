@@ -670,7 +670,7 @@ function updateMonthly() {
   loadYear(year, function (byStream) {
     var p = byStream[streamId].byMonth[ym];
     fillMonthlyReadout(streamId, monthName, p);
-    drawMonthlyMap();
+    drawMonthlyMap(streamId, ym);
     drawMonthlySeriesChart(monthlyChartPanel, byStream[streamId].list,
       year + ' — ' + STREAMS[streamId].short, ym);
   });
@@ -715,18 +715,26 @@ function fillMonthlyReadout(streamId, monthName, p) {
   monthlyReadout.add(kv('Biggest single-day jump',
     '+' + fmt(p.max_anomaly_vs_median_c) + ' °C on ' + p.max_anomaly_vs_median_date));
   monthlyReadout.add(ui.Label(
-    'For a pixel map of any single day (e.g. ' + p.hottest_observation_date
-    + '), switch to the single-day view.',
+    'Map: this month averaged pixel by pixel over its clear days — it shows where the lake ran '
+    + 'warmer or cooler. Blank = never seen clearly. It weights each pixel equally, so its overall '
+    + 'level can sit ~0.5 °C above the day-weighted figure above.',
     {fontSize: '11px', color: '#999', margin: '3px 0 0 0'}));
 }
 
-// The whole-month view is about the monthly numbers and the day-by-day chart, not
-// a picture — a monthly-average raster would need per-pixel compositing and would
-// blur the detail, and showing one day's pixels (the warmest) misread as a monthly
-// average. So the map just shows the lake outline; pixel maps live in the daily view.
-function drawMonthlyMap() {
-  setPixelLayer(null);
-  updateLegend(null);
+// Whole-month view: a per-pixel monthly MEAN — every clear, quality-checked day of
+// the month for this pass, averaged pixel by pixel. This is the spatial picture
+// behind the "Average lake surface" number. Pixels never seen clearly stay blank.
+function drawMonthlyMap(streamId, ym) {
+  var s = STREAMS[streamId];
+  var start = ee.Date(ym + '-01');
+  var col = ee.ImageCollection(s.col).filterDate(start, start.advance(1, 'month'));
+  col.size().evaluate(function (n) {
+    if (!n) { setPixelLayer(null); updateLegend(null); return; }
+    var meanC = col.map(function (img) { return acceptedLstC(ee.Image(img), s); })
+      .mean().clip(LAKE_GEOM);
+    setPixelLayer(meanC, s.short + ' — ' + ymLabel(ym) + ' mean');   // fixed LST_VIS scale
+    computeLstRange(meanC, updateLegend);
+  });
 }
 
 /* -------------------------------------------------------- shared line chart */
@@ -917,7 +925,6 @@ function refresh() {
   monthGroup.style().set('shown', !isDaily);
   monthlyReadout.style().set('shown', !isDaily);
   monthlyChartPanel.style().set('shown', !isDaily);
-  legend.style().set('shown', isDaily);   // no pixel map in the monthly view
   if (isDaily) { updateDaily(); } else { updateMonthly(); }
 }
 
