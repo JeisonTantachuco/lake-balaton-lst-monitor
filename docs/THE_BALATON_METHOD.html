@@ -300,23 +300,25 @@
     <section class="doc" id="s2">
       <div class="section-head"><span class="num">02</span><h2>Where the numbers come from</h2></div>
       <div class="chips"><span class="chip">DATA-001</span><span class="chip">DATA-002</span><span class="chip">DATA-003</span><span class="chip">DATA-004</span></div>
-      <p>Two NASA satellites carrying the MODIS instrument give a long, twice-daily record of the
-        lake's actual surface temperature. Each pass is kept as its own separate stream:</p>
+      <p>Two NASA satellites carrying the MODIS instrument give a long, four-times-daily record of
+        the lake's actual surface temperature. Each pass is kept as its own separate stream, shown
+        in the order they happen through a date (Hungarian clock time; winter is ~1 h earlier):</p>
       <div class="stream-grid">
-        <div><div class="who">Terra — morning</div><div class="when">~10:00 local</div></div>
-        <div><div class="who">Aqua — afternoon</div><div class="when">~13:00 local</div></div>
-        <div><div class="who">Terra — night</div><div class="when">~22:00 local</div></div>
-        <div><div class="who">Aqua — after midnight</div><div class="when">~01:00 local</div></div>
+        <div><div class="who">Aqua — pre-dawn</div><div class="when">~03:00 (Hungary)</div></div>
+        <div><div class="who">Terra — mid-morning</div><div class="when">~11:00 (Hungary)</div></div>
+        <div><div class="who">Aqua — early afternoon</div><div class="when">~14:00 (Hungary)</div></div>
+        <div><div class="who">Terra — evening</div><div class="when">~21:30 (Hungary)</div></div>
       </div>
-      <p>A lake heats through the day and cools at night — mixing &quot;how warm at 1 pm&quot; with
-        &quot;how warm at 1 am&quot; into one number would hide the real signal, not reveal it
-        (more on this in §08).</p>
-      <p>Three more sources are approved for later, not yet built into the app: <strong>Landsat</strong>
-        (sharper, 30 m images, for zooming into a specific hot day), <strong>ERA5-Land</strong>
-        reanalysis (air temperature, wind, sunlight, as context — never a replacement for the satellite
-        reading), and any <strong>field measurements</strong>, used only as an optional cross-check,
-        since a thermometer in the water measures something subtly different from what a satellite
-        sees from orbit.</p>
+      <p>The pre-dawn Aqua pass for a given date is taken in the small hours <em>of</em> that date,
+        so it is the <strong>first</strong> of the four, not the last. A lake heats through the day
+        and cools overnight — mixing &quot;how warm at 2 pm&quot; with &quot;how warm at 3 am&quot;
+        into one number would hide the real signal, not reveal it (more in §08).</p>
+      <p><strong>ERA5-Land</strong> reanalysis (air temperature, wind, sunlight) is now shown as
+        weather context in the single-day view (§10) — never a replacement for the satellite
+        reading. Two more sources are approved for later: <strong>Landsat</strong> (sharper, 30 m
+        images, for zooming into a specific hot day), and any <strong>field measurements</strong>,
+        an optional cross-check only, since a thermometer in the water measures something subtly
+        different from what a satellite sees from orbit.</p>
     </section>
 
     <section class="doc" id="s3">
@@ -488,7 +490,7 @@
         ÷ ~700 lake pixels; tiers <code>none</code> / <code>low</code> (&lt;&nbsp;0.15) /
         <code>ok</code>. Night passes are <em>structurally</em> low here — averaging only ~10% of the
         lake even on good nights — which is why the low-coverage mark shows up so often on the
-        evening and after-midnight rows. Every nighttime record also stores what the strict rule
+        pre-dawn and evening rows. Every nighttime record also stores what the strict rule
         would have shown, so nothing is hidden.</p></div>
     </section>
 
@@ -573,7 +575,7 @@
     <section class="doc" id="s8">
       <div class="section-head"><span class="num">08</span><h2>Why the four streams never merge</h2></div>
       <div class="chips"><span class="chip">METH-006</span></div>
-      <p>Terra-morning, Aqua-afternoon, Terra-night, Aqua-after-midnight are always shown
+      <p>Aqua-pre-dawn, Terra-morning, Aqua-afternoon and Terra-evening are always shown
         <strong>side by side</strong> — each with its own temperature, anomaly, percentile, and
         label. There is no single combined &quot;today's lake temperature.&quot;</p>
       <p>They aren't measuring the same thing. A lake genuinely warms through the day and cools at
@@ -622,6 +624,17 @@
           four-pass table shows <strong>what share of the lake each pass saw</strong> — both added
           after validation (§11) so a reading near a threshold, or one from thin coverage, looks that
           way rather than reading as a clean fact.</li>
+        <li>The four passes are shown <strong>in the order they happen</strong> — Aqua pre-dawn
+          (~03:00 Hungarian time, the <em>first</em> reading of the date, not the last), Terra
+          ~11:00, Aqua ~14:00, Terra ~21:30. Times are the mean measured overpass times over the
+          lake (an hour earlier in winter); the old labels were rounded and off by up to ~1.5&nbsp;h.</li>
+        <li>A <strong>&quot;Weather&quot; panel</strong> (single-day view) shows the ERA5-Land
+          reanalysis conditions for the selected pass — air temperature and wind at the overpass
+          hour, plus the day's sunshine and rain. It is context for <em>why</em> a reading was
+          unusual (calm + sun lets the surface skin run hot, or cold before dawn; wind mixes it
+          away); it is never a measurement of the water (<span class="mono">DATA-003</span>).
+          Sunshine is shown as <strong>&quot;% of a clear day&quot;</strong> (see glossary) so it
+          compares across seasons.</li>
       </ul>
     </section>
 
@@ -666,10 +679,12 @@
       <div class="section-head"><span class="num">11b</span><h2>Open and future work</h2></div>
       <div class="chips"><span class="chip">DATA-005</span><span class="chip">DATA-006</span><span class="chip">SCOPE-001</span><span class="chip">SCOPE-003</span></div>
       <ul>
-        <li><strong>Landsat</strong> hotspot inspection and an <strong>ERA5-Land</strong> weather
-          context panel are approved extensions, attempted only once the core product is solid. This
-          is the <em>real</em> use of Landsat and ERA5-Land &mdash; building them in as features
-          &mdash; as opposed to Section&nbsp;11's use of them only to check the product.</li>
+        <li>The <strong>ERA5-Land weather panel</strong> (<span class="mono">DATA-006</span>) is now
+          built (v1 &mdash; see §10); a &quot;vs normal&quot; weather comparison and a monthly
+          weather block are the obvious next steps.</li>
+        <li><strong>Landsat hotspot inspection</strong> (<span class="mono">DATA-005</span>) is still
+          an approved extension, not started &mdash; sharp 30&nbsp;m thermal images to zoom into one
+          hot day. (§11 used Landsat only to <em>check</em> the product; this builds it in.)</li>
         <li><strong>Basin-level results</strong>, littoral/pelagic zones, and any multi-day
           &quot;heatwave&quot; detector are documented future work — not claimed now, because the
           geometry or validated method they'd need doesn't exist yet.</li>
@@ -715,6 +730,14 @@
         <dd>The share of the lake's ~700 pixels that gave an accepted reading on a given pass. Drives
           the <span class="pill">none</span> / <span class="pill">low</span> /
           <span class="pill">ok</span> confidence flag.</dd>
+        <dt>&quot;% of a clear day&quot; (weather panel)</dt>
+        <dd>The day's measured solar energy at the ground (ERA5-Land) ÷ the <em>cloudless maximum</em>
+          for that date and the lake's latitude, ×100. The cloudless maximum is calculated, not
+          measured: Sun geometry (latitude + day of year → energy at the top of the atmosphere over
+          the day) × 0.75 for what a clean, cloudless sky lets through — the standard FAO-56
+          clear-sky formula. &quot;74%&quot; ⇒ clouds blocked about a quarter of the day's available
+          sun. Comparable across seasons, unlike raw kWh/m². Clamped to 100% in the app; rough by
+          ±a few %, not a measurement.</dd>
         <dt>Shifting baseline</dt>
         <dd>The problem where a &quot;normal&quot; that keeps updating with recent, already-changed
           conditions gradually hides the very change you're trying to measure.</dd>

@@ -32,25 +32,39 @@ var LAST_EXPORT_DATE = '2026-08-30';   // updated each time the monthly refresh 
 var FIRST_YEAR = 2023;
 var LAST_YEAR  = 2026;
 
-// The four satellite passes. The map/pixel bands are the MODIS/061 daily LST
-// products; the readout numbers all come from the pre-computed assets.
-// Overpass times are the nominal local times for Lake Balaton's latitude — the
-// exact minute varies a little day to day.
+// ERA5-Land reanalysis — weather context only (DATA-003 / DATA-006). Never a
+// measurement of the lake surface; it explains conditions, it does not replace the
+// satellite reading. ~9 km grid, roughly one week behind real time. Air temperature
+// and wind are taken from the HOURLY product at the pass's overpass hour; sunshine
+// and rain are whole-day totals from the DAILY product.
+var ERA5_DAILY  = 'ECMWF/ERA5_LAND/DAILY_AGGR';
+var ERA5_HOURLY = 'ECMWF/ERA5_LAND/HOURLY';
+
+// The four satellite passes, in the order they actually happen during a calendar
+// date. Times are Hungarian clock time (CET in winter, CEST in summer — one hour
+// later); they are the mean measured overpass times over the lake, and the exact
+// minute varies a little day to day. `utcHour` is used only to match the ERA5-Land
+// weather to the pass. NOTE: "Aqua pre-dawn" for date D is taken in the small
+// hours OF D (~03:00), i.e. it is the FIRST reading of that date, not the last.
 var STREAMS = {
-  terra_day:   {label: 'Terra — morning (about 10:00 local)',        short: 'Terra morning',
-                col: 'MODIS/061/MOD11A1', lst: 'LST_Day_1km',   qc: 'QC_Day',
-                time: 'Day_view_time',   angle: 'Day_view_angle'},
-  aqua_day:    {label: 'Aqua — early afternoon (about 13:00 local)', short: 'Aqua afternoon',
-                col: 'MODIS/061/MYD11A1', lst: 'LST_Day_1km',   qc: 'QC_Day',
-                time: 'Day_view_time',   angle: 'Day_view_angle'},
-  terra_night: {label: 'Terra — late evening (about 22:00 local)',   short: 'Terra evening',
-                col: 'MODIS/061/MOD11A1', lst: 'LST_Night_1km', qc: 'QC_Night',
-                time: 'Night_view_time', angle: 'Night_view_angle'},
-  aqua_night:  {label: 'Aqua — after midnight (about 01:00 local)',  short: 'Aqua night',
+  aqua_night:  {short: 'Aqua pre-dawn', clock: '~02:30–03:30 Hungarian time',
+                label: 'Aqua — pre-dawn (~02:30–03:30 Hungarian time)',
                 col: 'MODIS/061/MYD11A1', lst: 'LST_Night_1km', qc: 'QC_Night',
-                time: 'Night_view_time', angle: 'Night_view_angle'}
+                time: 'Night_view_time', angle: 'Night_view_angle', utcHour: 1},
+  terra_day:   {short: 'Terra morning', clock: '~10:30–11:30 Hungarian time',
+                label: 'Terra — mid-morning (~10:30–11:30 Hungarian time)',
+                col: 'MODIS/061/MOD11A1', lst: 'LST_Day_1km',   qc: 'QC_Day',
+                time: 'Day_view_time',   angle: 'Day_view_angle', utcHour: 9},
+  aqua_day:    {short: 'Aqua afternoon', clock: '~13:30–14:30 Hungarian time',
+                label: 'Aqua — early afternoon (~13:30–14:30 Hungarian time)',
+                col: 'MODIS/061/MYD11A1', lst: 'LST_Day_1km',   qc: 'QC_Day',
+                time: 'Day_view_time',   angle: 'Day_view_angle', utcHour: 12},
+  terra_night: {short: 'Terra evening', clock: '~21:00–22:00 Hungarian time',
+                label: 'Terra — evening (~21:00–22:00 Hungarian time)',
+                col: 'MODIS/061/MOD11A1', lst: 'LST_Night_1km', qc: 'QC_Night',
+                time: 'Night_view_time', angle: 'Night_view_angle', utcHour: 20}
 };
-var STREAM_ORDER = ['terra_day', 'aqua_day', 'terra_night', 'aqua_night'];
+var STREAM_ORDER = ['aqua_night', 'terra_day', 'aqua_day', 'terra_night'];
 
 var LST_VIS = {min: -5, max: 32,
                palette: ['#2166ac', '#67a9cf', '#d1e5f0', '#fddbc7', '#ef8a62', '#b2182b']};
@@ -263,9 +277,11 @@ var dailyReadout = ui.Panel({style: {margin: '8px 0 4px 0', padding: '7px',
   backgroundColor: '#f6f6f6', border: '1px solid #ddd'}});
 var dailyChartPanel = ui.Panel();
 var passTablePanel  = ui.Panel({style: {margin: '4px 0'}});
+var weatherPanel    = ui.Panel({style: {margin: '4px 0'}});
 panel.add(dailyReadout);
 panel.add(dailyChartPanel);
 panel.add(passTablePanel);
+panel.add(weatherPanel);
 
 /* -- monthly section -- */
 var monthlyReadout = ui.Panel({style: {margin: '8px 0 4px 0', padding: '7px',
@@ -277,18 +293,16 @@ panel.add(monthlyChartPanel);
 /* -- about -- */
 panel.add(ui.Label('About this tool', {fontWeight: 'bold', fontSize: '12px', margin: '12px 0 2px 0'}));
 panel.add(ui.Label(
-  'The lake-surface temperature comes from the MODIS instruments on NASA’s Terra and Aqua '
-  + 'satellites (1 km pixels). For each satellite pass, the clear-sky pixels over the lake are '
-  + 'averaged. "Normal" is the 2003–2022 record for the same time of year (a ±5-day '
-  + 'window around the calendar day). Each of the four passes keeps its own separate history and '
-  + 'is never mixed with the others — a warm afternoon and a warm night are different things. '
-  + 'Days with heavy cloud have no reading.',
+  'Lake-surface temperature from NASA MODIS (Terra + Aqua, 1 km). Each of the four daily passes '
+  + '(Aqua ~03:00, Terra ~11:00, Aqua ~14:00, Terra ~21:00 Hungarian time) is averaged over the '
+  + 'clear-sky lake pixels and compared to its own 2003–2022 history for the same time of year '
+  + '(±5-day window). The passes are never merged. Heavy cloud = no reading.',
   {fontSize: '10px', color: '#888', margin: '0'}));
 panel.add(ui.Label(
-  'Validated (2026): the monthly averages track independent Landsat surface temperature within '
-  + '~0.5 °C over 2003–2024, and every flagged warm anomaly matches the Copernicus European '
-  + 'climate record. The tool is validated for spotting unusual readings, not for the exact '
-  + 'temperature to a fraction of a degree.',
+  'Validated: our monthly averages track independent Landsat surface temperature within ~0.5 °C '
+  + 'over 2003–2024, and every flagged warm anomaly matches the Copernicus European climate record '
+  + '— validated for spotting unusual readings, not exact degrees. The "Weather" panel is '
+  + 'ERA5-Land reanalysis: context for a reading, never a measurement of the water.',
   {fontSize: '10px', color: '#888', margin: '4px 0 0 0'}));
 
 /* ------------------------------------------------------- readout components */
@@ -303,34 +317,33 @@ function kv(key, value, valueColour) {
 function bigLabel(text, colour) {
   return ui.Label(text, {fontSize: '14px', fontWeight: 'bold', color: colour || '#000', margin: '2px 0 4px 0'});
 }
-function lowCoverageNote() {
-  return ui.Label(
-    '*  "low coverage" day = fewer than 15% of the lake (about 700 pixels) had a clear, '
-    + 'quality-checked view from this satellite pass; cloud, ice or QA masking removed the '
-    + 'rest. These days are still counted in the monthly averages above.',
-    {fontSize: '9px', color: '#888', margin: '6px 0 0 0'});
-}
 
-function differenceSentence(delta) {
-  var sign = delta >= 0 ? '+' : '−';
-  return sign + fmt(Math.abs(delta)) + ' °C ' + (delta >= 0 ? 'above' : 'below') + ' normal';
+function signed(x) { return (x >= 0 ? '+' : '−') + fmt(Math.abs(x)); }
+
+// Clear-sky daily solar radiation for Lake Balaton's latitude on this date
+// (FAO-56: extraterrestrial radiation x 0.75). Lets the sunshine reading be shown
+// as a season-aware fraction — "6 kWh/m²" is a bright winter day and a dull July
+// one, so the absolute number alone is misleading.
+function clearSkyKwh(dstr) {
+  var d = new Date(dstr + 'T00:00:00Z');
+  var J = Math.round((d - Date.UTC(d.getUTCFullYear(), 0, 0)) / 864e5);
+  var phi = 46.83 * Math.PI / 180;
+  var dr = 1 + 0.033 * Math.cos(2 * Math.PI / 365 * J);
+  var dec = 0.409 * Math.sin(2 * Math.PI / 365 * J - 1.39);
+  var ws = Math.acos(-Math.tan(phi) * Math.tan(dec));
+  var Ra = (1440 / Math.PI) * 0.082 * dr
+    * (ws * Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.sin(ws));
+  return 0.75 * Ra / 3.6;
 }
-function rankSentence(pct, n) {
-  if (pct >= 99.5) { return 'the warmest of the ' + n + ' readings on record for this time of year'; }
-  if (pct <= 0.5)  { return 'the coldest of the ' + n + ' readings on record for this time of year'; }
-  return 'warmer than about ' + Math.round(pct) + '% of the ' + n
-    + ' readings on record for this time of year';
+function sunWordPct(frac) {
+  return frac < 0.25 ? 'very overcast' : frac < 0.55 ? 'cloudy'
+       : frac < 0.8 ? 'part sun' : frac < 0.95 ? 'mostly clear' : 'clear';
 }
-function coverageSentence(confidence, fraction, pixels) {
-  var pct = (fraction * 100).toFixed(0);
-  if (confidence === 'ok')  {
-    return 'Good — ' + pct + '% of the lake had a clear view (' + pixels + ' of ~700 pixels)';
-  }
-  if (confidence === 'low') {
-    return 'LOW — only ' + pct + '% of the lake had a clear view (' + pixels
-      + ' of ~700 pixels); treat this reading with caution';
-  }
-  return 'No clear view of the lake';
+// ERA5-Land hourly 10 m wind speed at the overpass hour. Runs low in absolute
+// terms over this small lake on a ~9 km grid, but separates a calm hour (~1.5–2)
+// from a blowy one (~4+). Bands set to that.
+function windWord(ms) {
+  return ms < 1.5 ? 'calm' : ms < 2.5 ? 'light air' : ms < 4 ? 'breezy' : 'windy';
 }
 
 /* -------------------------------------------------------- month data cache */
@@ -358,6 +371,52 @@ function loadMonth(ym, callback) {
       });
       monthCache[ym] = byStream;
       callback(byStream);
+    });
+}
+
+/* ------------------------------------------------------- weather (ERA5-Land) */
+
+// Weather context for one date + one pass: air temperature and wind from the
+// ERA5-Land HOURLY product at that pass's overpass hour (UTC), plus whole-day
+// sunshine and rain from the DAILY product. Cached per date+pass. `null` = no
+// ERA5-Land data for that date yet (it runs ~a week behind).
+var weatherCache = {};   // 'YYYY-MM-DD|streamId' -> {tPass,wind,tMin,tMax,solarKwh,rainMm} | null
+
+function loadWeather(dstr, streamId, callback) {
+  var key = dstr + '|' + streamId;
+  if (weatherCache.hasOwnProperty(key)) { callback(weatherCache[key]); return; }
+
+  var utcHour = STREAMS[streamId].utcHour;
+  var passStart = ee.Date(dstr).advance(utcHour, 'hour');
+  // mosaic() of a 0-or-1 image collection is empty-safe: a band-less image, and
+  // reduceRegion on it (no .select() first — that would throw) returns {}.
+  var hourly = ee.Image(ee.ImageCollection(ERA5_HOURLY)
+    .filterDate(passStart, passStart.advance(1, 'hour')).mosaic());
+  var daily = ee.Image(ee.ImageCollection(ERA5_DAILY)
+    .filterDate(dstr, isoPlusDays(dstr, 1)).mosaic());
+
+  var opts = {reducer: ee.Reducer.mean(), geometry: LAKE_GEOM, scale: 9000,
+              maxPixels: 1e7, bestEffort: true};
+  // Keep the two reductions separate so the pass-hour temperature/wind come
+  // unambiguously from the HOURLY image, never from the DAILY mean.
+  ee.Dictionary({h: ee.Dictionary(hourly.reduceRegion(opts)),
+                 d: ee.Dictionary(daily.reduceRegion(opts))})
+    .evaluate(function (r) {
+      var h = (r && r.h) || {}, d = (r && r.d) || {};
+      if (h.temperature_2m === undefined || h.temperature_2m === null) {
+        weatherCache[key] = null; callback(null); return;
+      }
+      var u = h.u_component_of_wind_10m, v = h.v_component_of_wind_10m;
+      var num = function (x, f) { return (x === undefined || x === null) ? null : f(x); };
+      weatherCache[key] = {
+        tPass: h.temperature_2m - 273.15,
+        wind: Math.sqrt(u * u + v * v),
+        tMin: num(d.temperature_2m_min, function (x) { return x - 273.15; }),
+        tMax: num(d.temperature_2m_max, function (x) { return x - 273.15; }),
+        solarKwh: num(d.surface_solar_radiation_downwards_sum, function (x) { return x / 3.6e6; }),
+        rainMm: num(d.total_precipitation_sum, function (x) { return x * 1000; })
+      };
+      callback(weatherCache[key]);
     });
 }
 
@@ -409,6 +468,8 @@ function updateDaily() {
   passTablePanel.add(ui.Label('Loading…', {color: '#999', fontSize: '11px'}));
   dailyChartPanel.clear();
   dailyChartPanel.add(ui.Label('Loading…', {color: '#999', fontSize: '11px'}));
+  weatherPanel.clear();
+  weatherPanel.add(ui.Label('Loading weather…', {color: '#999', fontSize: '11px'}));
 
   loadMonth(ym, function (byStream) {
     fillDailyReadout(streamId, dstr, dayName, byStream[streamId].byDate[dstr]);
@@ -416,6 +477,15 @@ function updateDaily() {
     drawSeriesChart(dailyChartPanel, byStream[streamId].list,
       ymLabel(ym) + ' — ' + STREAMS[streamId].short, dstr);
   });
+
+  // Weather is its own fetch (a different collection from the anomaly records) —
+  // the reading and pass table land first, weather fills in a moment later. It is
+  // matched to the SELECTED pass's overpass hour.
+  if (dstr <= LAST_EXPORT_DATE) {
+    loadWeather(dstr, streamId, function (w) { fillWeatherPanel(dstr, streamId, w); });
+  } else {
+    fillWeatherPanel(dstr, streamId, null);
+  }
 }
 
 function drawDailyMap(streamId, dstr) {
@@ -432,7 +502,8 @@ function drawDailyMap(streamId, dstr) {
 
 function fillDailyReadout(streamId, dstr, dayName, p) {
   dailyReadout.clear();
-  dailyReadout.add(ui.Label(STREAMS[streamId].short + '  ·  ' + dstr,
+  dailyReadout.add(ui.Label(
+    STREAMS[streamId].short + '  ·  ' + dayName + ' ' + dstr.slice(0, 4),
     {fontWeight: 'bold', fontSize: '12px', margin: '0 0 4px 0'}));
 
   if (!p) {
@@ -446,39 +517,33 @@ function fillDailyReadout(streamId, dstr, dayName, p) {
   }
 
   var raw = p.classification;
-  // Both reference values are the 2003-2022 record for this calendar day AND the
-  // 5 days either side of it (about 110-195 past readings) — never just this one
-  // date — so the readout says so every time, not just in the footer.
-  var windowNote = dayName + ' ± 5 days, 2003–2022';
 
+  // Verdict + its percentile on one line — the label is a threshold band, so the
+  // percentile beside it shows whether a reading sits near a boundary.
   dailyReadout.add(bigLabel(LABEL_DISPLAY[raw] || raw, LABEL_COLOUR[raw] || '#000'));
-  // The label is a threshold band; show the percentile next to it so a reading that
-  // sits close to a 90 / 95 / 99 boundary reads as borderline, not as a hard fact.
   dailyReadout.add(ui.Label(
-    percentileText(p.historical_percentile)
-    + (p.percentile_confidence && p.percentile_confidence !== 'full'
-        ? ' (from a small sample — less certain)' : ''),
-    {fontSize: '10px', color: '#666', margin: '0 0 4px 0'}));
-  dailyReadout.add(kv('Lake-surface temperature', fmt(p.daily_lst_c) + ' °C'));
-  dailyReadout.add(kv('Compared with normal', differenceSentence(p.anomaly_vs_median_c)));
-  dailyReadout.add(kv('', 'measured − median of the ' + windowNote + ' record ('
-    + fmt(p.reference_median_lst_c) + ' °C)', '#888'));
-  dailyReadout.add(kv('Also vs. the mean', differenceSentence(p.anomaly_vs_mean_c)));
-  dailyReadout.add(kv('', 'measured − mean of the same ' + windowNote + ' record ('
-    + fmt(p.reference_mean_lst_c) + ' °C)', '#888'));
-  dailyReadout.add(kv('Where it ranks',
-    rankSentence(p.historical_percentile, p.historical_n)));
-  dailyReadout.add(kv('Clear-sky coverage',
-    coverageSentence(p.confidence, p.valid_water_fraction, p.accepted_pixel_count),
+    percentileText(p.historical_percentile) + '  ·  ' + p.historical_n + ' past readings'
+    + (p.percentile_confidence && p.percentile_confidence !== 'full' ? '  ·  small sample' : ''),
+    {fontSize: '10px', color: '#666', margin: '0 0 5px 0'}));
+
+  dailyReadout.add(kv('Lake surface', fmt(p.daily_lst_c) + ' °C'));
+  dailyReadout.add(kv('vs normal', signed(p.anomaly_vs_median_c) + ' °C   (median '
+    + fmt(p.reference_median_lst_c) + ' °C;  the mean gives ' + signed(p.anomaly_vs_mean_c) + ' °C)'));
+  dailyReadout.add(ui.Label('"normal" = the 2003–2022 record for ' + dayName + ' ± 5 days',
+    {fontSize: '9px', color: '#999', margin: '1px 0 4px 0'}));
+  dailyReadout.add(kv('Clear-sky view',
+    Math.round(p.valid_water_fraction * 100) + '% of the lake (' + p.accepted_pixel_count
+    + ' px) — ' + (p.confidence === 'ok' ? 'good' : 'low; treat with caution'),
     p.confidence === 'ok' ? '#2e7d32' : '#cc4c02'));
 }
 
 function fillPassTable(dstr, byStream) {
   passTablePanel.clear();
-  passTablePanel.add(ui.Label('The same day seen by each satellite pass',
+  passTablePanel.add(ui.Label('The four passes, in the order they happen on this date',
     {fontWeight: 'bold', fontSize: '12px', margin: '4px 0 1px 0'}));
   passTablePanel.add(ui.Label(
-    'Each pass is measured and judged on its own — they are never averaged together.',
+    '"Aqua pre-dawn" is the small hours of this date (~03:00) — the first reading, not the last. '
+    + 'Each pass is judged on its own; they are never averaged.',
     {fontSize: '10px', color: '#888', margin: '0 0 3px 0'}));
 
   // Every cell — header and body — sets margin:'0' and the same width, so the
@@ -505,16 +570,13 @@ function fillPassTable(dstr, byStream) {
   header.add(cell('verdict  ·  rank', null, {color: '#888'}));
   passTablePanel.add(header);
 
-  var anyLow = false;
   STREAM_ORDER.forEach(function (id) {
     var p = byStream[id].byDate[dstr];
     var low = !!(p && p.confidence === 'low');
-    if (low) { anyLow = true; }
     var row = ui.Panel({layout: ui.Panel.Layout.flow('horizontal'), style: {margin: '1px 0'}});
-    // The low-coverage marker belongs to the pass, not to the difference — it is
-    // about how much of the lake that overpass saw, not about the number itself.
-    row.add(cell(STREAMS[id].short + (low ? ' *' : ''), C_PASS,
-      low ? {color: '#cc4c02'} : null));
+    // A low-coverage row is coloured orange — the "lake" % already shows why, so
+    // there is no separate marker.
+    row.add(cell(STREAMS[id].short, C_PASS, low ? {color: '#cc4c02'} : null));
     if (!p) {
       row.add(cell('–', C_COV, {color: '#bbb'}));
       row.add(cell('–', C_TEMP, {color: '#bbb'}));
@@ -538,11 +600,56 @@ function fillPassTable(dstr, byStream) {
   });
 
   passTablePanel.add(ui.Label(
-    '"lake" = share of the lake this pass had a clear, quality-checked view of. '
-    + '"rank" is where the reading sits among the 2003–2022 record for this time of year — '
-    + 'the verdict is a band around the 90th / 95th / 99th percentile, so a rank near a '
-    + 'boundary can sit either side.'
-    + (anyLow ? '  *  below 15% ("low coverage") — the reading is shown but is less certain.' : ''),
+    '"lake" = share of the lake seen clearly (orange = under 15%, less certain).',
+    {fontSize: '9px', color: '#888', margin: '4px 0 0 0'}));
+  passTablePanel.add(ui.Label(
+    '"rank" = where the reading sits in the 2003–2022 record; the verdict bands are at the '
+    + '90th / 95th / 99th percentile, so a rank near a line can go either way.',
+    {fontSize: '9px', color: '#888', margin: '1px 0 0 0'}));
+}
+
+// Weather context for the selected date and pass — ERA5-Land reanalysis,
+// background conditions only. It never replaces the satellite reading (DATA-003);
+// it helps explain WHY a reading was unusual. Air temperature and wind are for the
+// pass's overpass hour; sunshine and rain are whole-day totals.
+function fillWeatherPanel(dstr, streamId, w) {
+  weatherPanel.clear();
+  weatherPanel.add(ui.Label('Weather — ' + STREAMS[streamId].short + ' (' + STREAMS[streamId].clock + ')',
+    {fontWeight: 'bold', fontSize: '12px', margin: '8px 0 1px 0'}));
+  weatherPanel.add(ui.Label(
+    'ERA5-Land reanalysis — context for the reading, not a measurement of the water.',
+    {fontSize: '10px', color: '#888', margin: '0 0 3px 0'}));
+
+  if (dstr > LAST_EXPORT_DATE) { return; }
+  if (!w) {
+    weatherPanel.add(ui.Label('Not available for this date yet (ERA5-Land is ~a week behind).',
+      {fontSize: '10px', color: '#999', margin: '0'}));
+    return;
+  }
+
+  weatherPanel.add(kv('Air at the pass', fmt(w.tPass) + ' °C'));
+  weatherPanel.add(kv('Wind at the pass', fmt(w.wind) + ' m/s — ' + windWord(w.wind)));
+
+  // "That day overall" in its own framed box so it doesn't read as one long line.
+  // Sun is shown as a fraction of the cloudless maximum for this date + latitude,
+  // clamped to 100 (a genuinely clear day can compute a touch over).
+  var sunFrac = w.solarKwh === null ? null : w.solarKwh / clearSkyKwh(dstr);
+  var sunPct = sunFrac === null ? null : Math.min(100, Math.round(100 * sunFrac));
+  var frame = ui.Panel({style: {margin: '3px 0 0 0', padding: '5px 7px',
+    backgroundColor: '#f0f0f0', border: '1px solid #e0e0e0'}});
+  frame.add(ui.Label('That day overall', {fontSize: '9px', color: '#888', margin: '0 0 1px 0'}));
+  frame.add(ui.Label(
+    'Sun ' + (sunPct === null ? '–' : sunPct + '% of a clear day (' + sunWordPct(sunFrac) + ')')
+    + '   ·   Rain ' + (w.rainMm === null ? '–' : (w.rainMm < 0.1 ? 'none' : fmt(w.rainMm) + ' mm'))
+    + (w.tMin !== null ? '   ·   Air range ' + fmt(w.tMin) + ' to ' + fmt(w.tMax) + ' °C' : ''),
+    {fontSize: '10px', color: '#444', margin: '0'}));
+  weatherPanel.add(frame);
+
+  weatherPanel.add(ui.Label(
+    'Calm, sunny weather lets the surface skin run hot by day and cold before dawn; wind mixes it '
+    + 'away, cloud and cold air pull it toward the air. "% of a clear day" = the day\'s sunshine '
+    + '÷ the cloudless maximum for this date and latitude (from Sun geometry, less ~25% for a clean '
+    + 'atmosphere). Wind over this small lake reads a little low.',
     {fontSize: '9px', color: '#888', margin: '4px 0 0 0'}));
 }
 
@@ -577,33 +684,24 @@ function fillMonthlyReadout(streamId, monthName, p) {
   if (p.state !== 'reported') {
     monthlyReadout.add(bigLabel('Not enough clear days to summarise', '#cc4c02'));
     monthlyReadout.add(kv('Clear days', p.valid_day_count + ' of ' + p.calendar_day_count
-      + (p.low_coverage_day_count > 0
-          ? '  (' + p.low_coverage_day_count + ' low coverage*)' : '')));
-    if (p.low_coverage_day_count > 0) { monthlyReadout.add(lowCoverageNote()); }
+      + (p.low_coverage_day_count > 0 ? '  (' + p.low_coverage_day_count + ' low coverage)' : '')
+      + ' — a summary needs at least 3'));
     return;
   }
-  monthlyReadout.add(kv('Average lake-surface temp', fmt(p.monthly_mean_lst_c) + ' °C'));
-  monthlyReadout.add(kv('Compared with normal',
-    (p.monthly_mean_anomaly_vs_median_c >= 0 ? '+' : '−')
-    + fmt(Math.abs(p.monthly_mean_anomaly_vs_median_c))
-    + ' °C vs the 2003–2022 median for this month'));
-  monthlyReadout.add(kv('', '(vs the mean: '
-    + (p.monthly_mean_anomaly_vs_mean_c >= 0 ? '+' : '−')
-    + fmt(Math.abs(p.monthly_mean_anomaly_vs_mean_c)) + ' °C)', '#888'));
-  monthlyReadout.add(kv('Clear days used',
-    p.valid_day_count + ' of ' + p.calendar_day_count
-    + (p.low_coverage_day_count > 0
-        ? ' — ' + p.low_coverage_day_count + ' of them low coverage*' : '')
-    + '  (' + (p.missing_or_cloud_fraction * 100).toFixed(0) + '% missing or cloudy)'));
-  if (typeof p.mean_valid_water_fraction === 'number') {
-    monthlyReadout.add(kv('', 'On a clear day about '
-      + (p.mean_valid_water_fraction * 100).toFixed(0)
-      + '% of the lake was seen, on average', '#888'));
-  }
+  monthlyReadout.add(kv('Average lake surface', fmt(p.monthly_mean_lst_c) + ' °C'));
+  monthlyReadout.add(kv('vs normal', signed(p.monthly_mean_anomaly_vs_median_c)
+    + ' °C   (median;  the mean gives ' + signed(p.monthly_mean_anomaly_vs_mean_c) + ' °C)'));
+  monthlyReadout.add(ui.Label('"normal" = the 2003–2022 median for this calendar month',
+    {fontSize: '9px', color: '#999', margin: '1px 0 4px 0'}));
+  monthlyReadout.add(kv('Clear days used', p.valid_day_count + ' of ' + p.calendar_day_count
+    + (p.low_coverage_day_count > 0 ? ' (' + p.low_coverage_day_count + ' low coverage)' : '')
+    + (typeof p.mean_valid_water_fraction === 'number'
+        ? ' — ~' + (p.mean_valid_water_fraction * 100).toFixed(0) + '% of the lake seen on a clear day'
+        : '')));
   if (p.low_coverage_day_count >= p.valid_day_count && p.valid_day_count > 0) {
     monthlyReadout.add(ui.Label(
-      'Every clear day this month saw less than 15% of the lake — this monthly '
-      + 'summary rests on very thin coverage; treat it with caution.',
+      'Every clear day this month saw under 15% of the lake — this summary rests on very thin '
+      + 'coverage; treat it with caution.',
       {fontSize: '10px', color: '#cc4c02', margin: '2px 0 4px 0'}));
   }
   monthlyReadout.add(kv('Warm-or-above days', String(p.warm_observation_count)));
@@ -611,7 +709,6 @@ function fillMonthlyReadout(streamId, monthName, p) {
     fmt(p.hottest_observation_lst_c) + ' °C on ' + p.hottest_observation_date));
   monthlyReadout.add(kv('Biggest single-day jump',
     '+' + fmt(p.max_anomaly_vs_median_c) + ' °C on ' + p.max_anomaly_vs_median_date));
-  if (p.low_coverage_day_count > 0) { monthlyReadout.add(lowCoverageNote()); }
 }
 
 function drawMonthlyMap(streamId, p) {
@@ -812,6 +909,7 @@ function refresh() {
   dailyReadout.style().set('shown', isDaily);
   dailyChartPanel.style().set('shown', isDaily);
   passTablePanel.style().set('shown', isDaily);
+  weatherPanel.style().set('shown', isDaily);
   monthGroup.style().set('shown', !isDaily);
   monthlyReadout.style().set('shown', !isDaily);
   monthlyChartPanel.style().set('shown', !isDaily);
