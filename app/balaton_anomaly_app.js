@@ -161,7 +161,7 @@ mapPanel.setControlVisibility({layerList: true, zoomControl: true, mapTypeContro
                                fullscreenControl: false, scaleControl: true});
 mapPanel.centerObject(LAKE_GEOM, 10);
 
-var panel = ui.Panel({style: {width: '410px', padding: '10px'}});
+var panel = ui.Panel({style: {width: '470px', padding: '12px'}});
 ui.root.add(panel);
 ui.root.add(mapPanel);
 
@@ -204,16 +204,16 @@ function computeLstRange(lstImage, callback) {
 
 /* -- header -- */
 panel.add(ui.Label('Lake Balaton — water-surface temperature monitor',
-  {fontSize: '18px', fontWeight: 'bold', margin: '2px 0'}));
+  {fontSize: '20px', fontWeight: 'bold', margin: '2px 0'}));
 panel.add(ui.Label(
   'Surface temperature of Lake Balaton from the MODIS instruments on NASA’s Terra and '
   + 'Aqua satellites, January 2023 onward, compared with the 2003–2022 record for the '
   + 'same time of year.',
-  {fontSize: '11px', color: '#555', margin: '0 0 3px 0'}));
+  {fontSize: '13px', color: '#555', margin: '0 0 3px 0'}));
 panel.add(ui.Label(
   'Satellite coverage currently runs to ' + LAST_EXPORT_DATE
   + '. New months are added by hand, roughly monthly.',
-  {fontSize: '11px', color: '#888', margin: '0 0 8px 0'}));
+  {fontSize: '13px', color: '#888', margin: '0 0 8px 0'}));
 
 /* -- controls -- */
 var modeSelect = ui.Select({
@@ -245,7 +245,7 @@ dateGroup.add(ui.Label('Date  —  click the date to open a calendar',
 dateGroup.add(dateSlider);
 dateGroup.add(ui.Label(
   'The slider under the date steps one day at a time; use the calendar to jump further.',
-  {fontSize: '10px', color: '#888', margin: '1px 0 0 0'}));
+  {fontSize: '12px', color: '#888', margin: '1px 0 0 0'}));
 panel.add(dateGroup);
 
 // Whole-month view: a plain Month dropdown. Every day inside one month gives the
@@ -273,7 +273,7 @@ monthGroup.add(monthYearSelect);
 panel.add(monthGroup);
 
 /* -- daily section -- */
-var dailyReadout = ui.Panel({style: {margin: '8px 0 4px 0', padding: '7px',
+var dailyReadout = ui.Panel({style: {margin: '9px 0 5px 0', padding: '9px',
   backgroundColor: '#f6f6f6', border: '1px solid #ddd'}});
 var dailyChartPanel = ui.Panel();
 var passTablePanel  = ui.Panel({style: {margin: '4px 0'}});
@@ -284,20 +284,20 @@ panel.add(passTablePanel);
 panel.add(weatherPanel);
 
 /* -- monthly section -- */
-var monthlyReadout = ui.Panel({style: {margin: '8px 0 4px 0', padding: '7px',
+var monthlyReadout = ui.Panel({style: {margin: '9px 0 5px 0', padding: '9px',
   backgroundColor: '#f6f6f6', border: '1px solid #ddd'}});
 var monthlyChartPanel = ui.Panel();
 panel.add(monthlyReadout);
 panel.add(monthlyChartPanel);
 
 /* -- about -- */
-panel.add(ui.Label('About this tool', {fontWeight: 'bold', fontSize: '12px', margin: '12px 0 2px 0'}));
+panel.add(ui.Label('About this tool', {fontWeight: 'bold', fontSize: '14px', margin: '12px 0 2px 0'}));
 panel.add(ui.Label(
   'Lake-surface temperature from NASA MODIS (Terra + Aqua, 1 km). Each of the four daily passes '
   + '(Aqua ~03:00, Terra ~11:00, Aqua ~14:00, Terra ~21:00 Hungarian time) is averaged over the '
   + 'clear-sky lake pixels and compared to its own 2003–2022 history for the same time of year '
   + '(±5-day window). The passes are never merged. Heavy cloud = no reading.',
-  {fontSize: '10px', color: '#888', margin: '0'}));
+  {fontSize: '12px', color: '#888', margin: '0'}));
 panel.add(ui.Label(
   'Validated: over 2003–2024, our monthly average for a given month sits within ~0.5 °C of what '
   + 'Landsat (a different satellite) measured for the same month, and every warm spell the tool '
@@ -305,19 +305,19 @@ panel.add(ui.Label(
   + 'published European climate bulletins. Reliable for spotting unusual readings, not calibrated '
   + 'to the exact degree. The "Weather" panel is ERA5-Land reanalysis — context, never a '
   + 'measurement of the water.',
-  {fontSize: '10px', color: '#888', margin: '4px 0 0 0'}));
+  {fontSize: '12px', color: '#888', margin: '4px 0 0 0'}));
 
 /* ------------------------------------------------------- readout components */
 
 function kv(key, value, valueColour) {
   var row = ui.Panel({layout: ui.Panel.Layout.flow('horizontal'), style: {margin: '1px 0'}});
-  row.add(ui.Label(key, {color: '#666', fontSize: '11px', margin: '0 6px 0 0', width: '150px'}));
-  row.add(ui.Label(value, {fontSize: '11px', fontWeight: 'bold', margin: '0',
+  row.add(ui.Label(key, {color: '#666', fontSize: '13px', margin: '0 7px 0 0', width: '165px'}));
+  row.add(ui.Label(value, {fontSize: '13px', fontWeight: 'bold', margin: '0',
                            color: valueColour || '#000', stretch: 'horizontal'}));
   return row;
 }
 function bigLabel(text, colour) {
-  return ui.Label(text, {fontSize: '14px', fontWeight: 'bold', color: colour || '#000', margin: '2px 0 4px 0'});
+  return ui.Label(text, {fontSize: '16px', fontWeight: 'bold', color: colour || '#000', margin: '2px 0 4px 0'});
 }
 
 function signed(x) { return (x >= 0 ? '+' : '−') + fmt(Math.abs(x)); }
@@ -465,13 +465,13 @@ function updateDaily() {
   drawDailyMap(streamId, dstr);
 
   dailyReadout.clear();
-  dailyReadout.add(ui.Label('Loading…', {color: '#999', fontSize: '11px'}));
+  dailyReadout.add(ui.Label('Loading…', {color: '#999', fontSize: '13px'}));
   passTablePanel.clear();
-  passTablePanel.add(ui.Label('Loading…', {color: '#999', fontSize: '11px'}));
+  passTablePanel.add(ui.Label('Loading…', {color: '#999', fontSize: '13px'}));
   dailyChartPanel.clear();
-  dailyChartPanel.add(ui.Label('Loading…', {color: '#999', fontSize: '11px'}));
+  dailyChartPanel.add(ui.Label('Loading…', {color: '#999', fontSize: '13px'}));
   weatherPanel.clear();
-  weatherPanel.add(ui.Label('Loading weather…', {color: '#999', fontSize: '11px'}));
+  weatherPanel.add(ui.Label('Loading weather…', {color: '#999', fontSize: '13px'}));
 
   loadMonth(ym, function (byStream) {
     fillDailyReadout(streamId, dstr, dayName, byStream[streamId].byDate[dstr]);
@@ -506,7 +506,7 @@ function fillDailyReadout(streamId, dstr, dayName, p) {
   dailyReadout.clear();
   dailyReadout.add(ui.Label(
     STREAMS[streamId].short + '  ·  ' + dayName + ' ' + dstr.slice(0, 4),
-    {fontWeight: 'bold', fontSize: '12px', margin: '0 0 4px 0'}));
+    {fontWeight: 'bold', fontSize: '14px', margin: '0 0 4px 0'}));
 
   if (!p) {
     dailyReadout.add(bigLabel('No reading for this day', '#999'));
@@ -514,7 +514,7 @@ function fillDailyReadout(streamId, dstr, dayName, p) {
       dstr > LAST_EXPORT_DATE
         ? 'Later than the last data update (' + LAST_EXPORT_DATE + ').'
         : 'The lake was too cloudy on this pass for a reliable reading.',
-      {fontSize: '10px', color: '#666'}));
+      {fontSize: '12px', color: '#666'}));
     return;
   }
 
@@ -526,13 +526,13 @@ function fillDailyReadout(streamId, dstr, dayName, p) {
   dailyReadout.add(ui.Label(
     percentileText(p.historical_percentile) + '  ·  ' + p.historical_n + ' past readings'
     + (p.percentile_confidence && p.percentile_confidence !== 'full' ? '  ·  small sample' : ''),
-    {fontSize: '10px', color: '#666', margin: '0 0 5px 0'}));
+    {fontSize: '12px', color: '#666', margin: '0 0 5px 0'}));
 
   dailyReadout.add(kv('Lake surface', fmt(p.daily_lst_c) + ' °C'));
   dailyReadout.add(kv('vs normal', signed(p.anomaly_vs_median_c) + ' °C   (median '
     + fmt(p.reference_median_lst_c) + ' °C;  the mean gives ' + signed(p.anomaly_vs_mean_c) + ' °C)'));
   dailyReadout.add(ui.Label('"normal" = the 2003–2022 record for ' + dayName + ' ± 5 days',
-    {fontSize: '9px', color: '#999', margin: '1px 0 4px 0'}));
+    {fontSize: '11px', color: '#999', margin: '1px 0 4px 0'}));
   dailyReadout.add(kv('Clear-sky view',
     Math.round(p.valid_water_fraction * 100) + '% of the lake (' + p.accepted_pixel_count
     + ' px) — ' + (p.confidence === 'ok' ? 'good' : 'low; treat with caution'),
@@ -542,17 +542,17 @@ function fillDailyReadout(streamId, dstr, dayName, p) {
 function fillPassTable(dstr, byStream) {
   passTablePanel.clear();
   passTablePanel.add(ui.Label('The same date seen by each satellite pass',
-    {fontWeight: 'bold', fontSize: '12px', margin: '4px 0 1px 0'}));
+    {fontWeight: 'bold', fontSize: '14px', margin: '4px 0 1px 0'}));
   passTablePanel.add(ui.Label(
     'Each pass is measured and judged on its own — they are never averaged together.',
-    {fontSize: '10px', color: '#888', margin: '0 0 3px 0'}));
+    {fontSize: '12px', color: '#888', margin: '0 0 3px 0'}));
 
   // Every cell — header and body — sets margin:'0' and the same width, so the
   // columns line up. (Leaving the header labels on the default label margin was
   // why "temp" / "vs normal" sat shifted right of the numbers under them.)
-  var C_PASS = '92px', C_COV = '34px', C_TEMP = '44px', C_NORM = '50px';
+  var C_PASS = '112px', C_COV = '40px', C_TEMP = '52px', C_NORM = '58px';
   function cell(text, w, extra) {
-    var st = {fontSize: '10px', margin: '0'};
+    var st = {fontSize: '12px', margin: '0'};
     if (w) { st.width = w; } else { st.stretch = 'horizontal'; }
     for (var k in (extra || {})) { st[k] = extra[k]; }
     return ui.Label(text, st);
@@ -602,11 +602,11 @@ function fillPassTable(dstr, byStream) {
 
   passTablePanel.add(ui.Label(
     '"lake" = share of the lake seen clearly (orange = under 15%, less certain).',
-    {fontSize: '9px', color: '#888', margin: '4px 0 0 0'}));
+    {fontSize: '11px', color: '#888', margin: '4px 0 0 0'}));
   passTablePanel.add(ui.Label(
     '"rank" = where the reading sits in the 2003–2022 record; the verdict bands are at the '
     + '90th / 95th / 99th percentile, so a rank near a line can go either way.',
-    {fontSize: '9px', color: '#888', margin: '1px 0 0 0'}));
+    {fontSize: '11px', color: '#888', margin: '1px 0 0 0'}));
 }
 
 // Weather context for the selected date and pass — ERA5-Land reanalysis,
@@ -616,15 +616,15 @@ function fillPassTable(dstr, byStream) {
 function fillWeatherPanel(dstr, streamId, w) {
   weatherPanel.clear();
   weatherPanel.add(ui.Label('Weather — ' + STREAMS[streamId].short + ' (' + STREAMS[streamId].clock + ')',
-    {fontWeight: 'bold', fontSize: '12px', margin: '8px 0 1px 0'}));
+    {fontWeight: 'bold', fontSize: '14px', margin: '8px 0 1px 0'}));
   weatherPanel.add(ui.Label(
     'ERA5-Land reanalysis — context for the reading, not a measurement of the water.',
-    {fontSize: '10px', color: '#888', margin: '0 0 3px 0'}));
+    {fontSize: '12px', color: '#888', margin: '0 0 3px 0'}));
 
   if (dstr > LAST_EXPORT_DATE) { return; }
   if (!w) {
     weatherPanel.add(ui.Label('Not available for this date yet (ERA5-Land is ~a week behind).',
-      {fontSize: '10px', color: '#999', margin: '0'}));
+      {fontSize: '12px', color: '#999', margin: '0'}));
     return;
   }
 
@@ -636,14 +636,14 @@ function fillWeatherPanel(dstr, streamId, w) {
   // clamped to 100 (a genuinely clear day can compute a touch over).
   var sunFrac = w.solarKwh === null ? null : w.solarKwh / clearSkyKwh(dstr);
   var sunPct = sunFrac === null ? null : Math.min(100, Math.round(100 * sunFrac));
-  var frame = ui.Panel({style: {margin: '3px 0 0 0', padding: '5px 7px',
+  var frame = ui.Panel({style: {margin: '4px 0 0 0', padding: '6px 9px',
     backgroundColor: '#f0f0f0', border: '1px solid #e0e0e0'}});
-  frame.add(ui.Label('That day overall', {fontSize: '9px', color: '#888', margin: '0 0 1px 0'}));
+  frame.add(ui.Label('That day overall', {fontSize: '11px', color: '#888', margin: '0 0 1px 0'}));
   frame.add(ui.Label(
     'Sun ' + (sunPct === null ? '–' : sunPct + '% of a clear day (' + sunWordPct(sunFrac) + ')')
     + '   ·   Rain ' + (w.rainMm === null ? '–' : (w.rainMm < 0.1 ? 'none' : fmt(w.rainMm) + ' mm'))
     + (w.tMin !== null ? '   ·   Air range ' + fmt(w.tMin) + ' to ' + fmt(w.tMax) + ' °C' : ''),
-    {fontSize: '10px', color: '#444', margin: '0'}));
+    {fontSize: '12px', color: '#444', margin: '0'}));
   weatherPanel.add(frame);
 
   weatherPanel.add(ui.Label(
@@ -651,7 +651,7 @@ function fillWeatherPanel(dstr, streamId, w) {
     + 'away, cloud and cold air pull it toward the air. "% of a clear day" = the day\'s sunshine '
     + '÷ the cloudless maximum for this date and latitude (Sun geometry, less ~25% for a clean '
     + 'atmosphere). ERA5-Land\'s ~9 km grid is coarse next to the lake, so its wind runs a little low.',
-    {fontSize: '9px', color: '#888', margin: '4px 0 0 0'}));
+    {fontSize: '11px', color: '#888', margin: '4px 0 0 0'}));
 }
 
 /* ------------------------------------------------------------ monthly view */
@@ -663,9 +663,9 @@ function updateMonthly() {
   var monthName = ymLabel(ym);
 
   monthlyReadout.clear();
-  monthlyReadout.add(ui.Label('Loading…', {color: '#999', fontSize: '11px'}));
+  monthlyReadout.add(ui.Label('Loading…', {color: '#999', fontSize: '13px'}));
   monthlyChartPanel.clear();
-  monthlyChartPanel.add(ui.Label('Loading…', {color: '#999', fontSize: '11px'}));
+  monthlyChartPanel.add(ui.Label('Loading…', {color: '#999', fontSize: '13px'}));
 
   loadYear(year, function (byStream) {
     var p = byStream[streamId].byMonth[ym];
@@ -679,7 +679,7 @@ function updateMonthly() {
 function fillMonthlyReadout(streamId, monthName, p) {
   monthlyReadout.clear();
   monthlyReadout.add(ui.Label(STREAMS[streamId].short + '  ·  ' + monthName,
-    {fontWeight: 'bold', fontSize: '12px', margin: '0 0 4px 0'}));
+    {fontWeight: 'bold', fontSize: '14px', margin: '0 0 4px 0'}));
 
   if (!p) { monthlyReadout.add(bigLabel('No summary for this month', '#999')); return; }
   if (p.state !== 'reported') {
@@ -693,7 +693,7 @@ function fillMonthlyReadout(streamId, monthName, p) {
   monthlyReadout.add(kv('vs normal', signed(p.monthly_mean_anomaly_vs_median_c)
     + ' °C   (median;  the mean gives ' + signed(p.monthly_mean_anomaly_vs_mean_c) + ' °C)'));
   monthlyReadout.add(ui.Label('"normal" = the 2003–2022 median for this calendar month',
-    {fontSize: '9px', color: '#999', margin: '1px 0 4px 0'}));
+    {fontSize: '11px', color: '#999', margin: '1px 0 4px 0'}));
   monthlyReadout.add(kv('Clear days used', p.valid_day_count + ' of ' + p.calendar_day_count
     + (p.low_coverage_day_count > 0 ? ' (' + p.low_coverage_day_count + ' low coverage)' : '')
     + (typeof p.mean_valid_water_fraction === 'number'
@@ -703,7 +703,7 @@ function fillMonthlyReadout(streamId, monthName, p) {
     monthlyReadout.add(ui.Label(
       'Every clear day this month saw under 15% of the lake — this summary rests on very thin '
       + 'coverage; treat it with caution.',
-      {fontSize: '10px', color: '#cc4c02', margin: '2px 0 4px 0'}));
+      {fontSize: '12px', color: '#cc4c02', margin: '2px 0 4px 0'}));
   }
   monthlyReadout.add(kv('Warm-or-above days', String(p.warm_observation_count)));
   monthlyReadout.add(kv('Warmest reading',
@@ -763,13 +763,13 @@ function drawSeriesChart(target, rows, title, highlightDate) {
 
   var chart = ui.Chart(data, 'LineChart', {
     title: title,
-    height: 210,
+    height: 235,
     interpolateNulls: false,
     series: series,
-    hAxis: {slantedText: true, slantedTextAngle: 60, textStyle: {fontSize: 8}},
-    vAxis: {title: 'Lake-surface temperature (°C)', titleTextStyle: {fontSize: 10}},
-    legend: {position: 'top', textStyle: {fontSize: 10}},
-    chartArea: {left: 45, right: 12, top: 40, bottom: 55}
+    hAxis: {slantedText: true, slantedTextAngle: 60, textStyle: {fontSize: 10}},
+    vAxis: {title: 'Lake-surface temperature (°C)', titleTextStyle: {fontSize: 12}},
+    legend: {position: 'top', textStyle: {fontSize: 12}},
+    chartArea: {left: 52, right: 14, top: 42, bottom: 62}
   });
   if (clickable) {
     chart.onClick(function (dateStr) {
@@ -787,7 +787,7 @@ function drawSeriesChart(target, rows, title, highlightDate) {
     + 'that day was above or below normal — look for the dots furthest from the line.'
     + (hasHl ? ' The yellow dot is the day shown above; click any red dot to jump to it.'
              : (clickable ? ' Click any red dot to jump to that day.' : '')),
-    {fontSize: '10px', color: '#777', margin: '2px 0 8px 0'}));
+    {fontSize: '12px', color: '#777', margin: '2px 0 8px 0'}));
 }
 
 /**
@@ -826,13 +826,13 @@ function drawMonthlySeriesChart(target, rows, title, highlightMonth) {
 
   var chart = ui.Chart(data, 'LineChart', {
     title: title,
-    height: 210,
+    height: 235,
     interpolateNulls: false,
     series: series,
-    hAxis: {slantedText: true, slantedTextAngle: 60, textStyle: {fontSize: 9}},
-    vAxis: {title: 'Lake-surface temperature (°C)', titleTextStyle: {fontSize: 10}},
-    legend: {position: 'top', textStyle: {fontSize: 10}},
-    chartArea: {left: 45, right: 12, top: 40, bottom: 45}
+    hAxis: {slantedText: true, slantedTextAngle: 60, textStyle: {fontSize: 11}},
+    vAxis: {title: 'Lake-surface temperature (°C)', titleTextStyle: {fontSize: 12}},
+    legend: {position: 'top', textStyle: {fontSize: 12}},
+    chartArea: {left: 52, right: 14, top: 42, bottom: 52}
   });
   chart.onClick(function (monthStr) {
     if (!monthStr) { return; }
@@ -847,7 +847,7 @@ function drawMonthlySeriesChart(target, rows, title, highlightMonth) {
     + 'A gap means too few clear days that month to report a value. '
     + (hasHl ? 'The yellow dot is the month shown above; click any red point to jump to it.'
              : 'Click any red point to jump to that month.'),
-    {fontSize: '10px', color: '#777', margin: '2px 0 8px 0'}));
+    {fontSize: '12px', color: '#777', margin: '2px 0 8px 0'}));
 }
 
 /* ------------------------------------------------------------------- legend */
@@ -867,26 +867,26 @@ function legendRampImage(lo, hi) {
 // wraps onto a second line instead of forcing the panel (and the gap after the
 // ramp image) wider than the ramp itself — that mismatch was why the bar looked
 // like it stopped short of the "max" label instead of reaching it.
-var LEGEND_WIDTH = '140px';
+var LEGEND_WIDTH = '160px';
 
-var legend = ui.Panel({style: {position: 'bottom-left', padding: '6px 8px', width: '156px'}});
+var legend = ui.Panel({style: {position: 'bottom-left', padding: '7px 9px', width: '182px'}});
 legend.add(ui.Label('Lake-surface temperature (°C)',
-  {fontWeight: 'bold', fontSize: '10px', margin: '0 0 3px 0'}));
+  {fontWeight: 'bold', fontSize: '12px', margin: '0 0 3px 0'}));
 var legendBar = ui.Thumbnail({
   image: legendRampImage(LST_VIS.min, LST_VIS.max),
-  params: {bbox: [0, 0, 100, 8], dimensions: '140x12'},
-  style: {margin: '0', padding: '0', width: LEGEND_WIDTH, height: '12px'}
+  params: {bbox: [0, 0, 100, 8], dimensions: '160x14'},
+  style: {margin: '0', padding: '0', width: LEGEND_WIDTH, height: '14px'}
 });
 legend.add(legendBar);
-var legendMinLabel = ui.Label(fmt(LST_VIS.min) + '°', {fontSize: '9px', stretch: 'horizontal', margin: '0'});
-var legendMaxLabel = ui.Label(fmt(LST_VIS.max) + '°', {fontSize: '9px', margin: '0'});
+var legendMinLabel = ui.Label(fmt(LST_VIS.min) + '°', {fontSize: '11px', stretch: 'horizontal', margin: '0'});
+var legendMaxLabel = ui.Label(fmt(LST_VIS.max) + '°', {fontSize: '11px', margin: '0'});
 var scaleRow = ui.Panel({
   layout: ui.Panel.Layout.flow('horizontal'), style: {width: LEGEND_WIDTH, margin: '0'}});
 scaleRow.add(legendMinLabel);
 scaleRow.add(legendMaxLabel);
 legend.add(scaleRow);
 legend.add(ui.Label('this view\'s own range',
-  {fontSize: '9px', color: '#999', margin: '2px 0 0 0', width: LEGEND_WIDTH}));
+  {fontSize: '11px', color: '#999', margin: '2px 0 0 0', width: LEGEND_WIDTH}));
 mapPanel.add(legend);
 
 // Called after every map layer redraw with that layer's actual min/max. The map
