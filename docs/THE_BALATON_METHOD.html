@@ -611,11 +611,22 @@
           calculation, not one per day passed over.</li>
         <li>The whole-month view has its own Month selector, separate from the daily calendar, since
           every day inside a month gives the same monthly answer.</li>
-        <li>The whole-month map is a <strong>bias-corrected monthly composite</strong>. A naïve
-          per-pixel monthly average runs ~0.5&nbsp;°C warm (warm days are clearer, so contribute
-          more pixels). Instead each day's pixels have that day's own lake-average removed, the
-          patterns are composited, and the day-weighted monthly figure is added back — so the map
-          shows the within-lake pattern and its level matches the headline number.</li>
+        <li>The whole-month map is a <strong>bias-corrected monthly composite</strong>.
+          <em>The problem:</em> the obvious way to draw it &mdash; average each pixel over the days
+          it was clear &mdash; is skewed, because clouds over Balaton aren't random. Warm days are
+          the clearer ones, so they contribute far more pixels than cold days do; the result
+          ("clear-sky bias") is a map ~0.5&nbsp;°C warmer than the true monthly mean, every month,
+          that would visibly disagree with the number beside it.
+          <em>Two options:</em> (a) show that and note it, or (b) correct it &mdash; (b) was chosen,
+          a systematic every-month error isn't something to knowingly display.
+          <em>The correction:</em> every reading = that day's lake average + how far the pixel sat
+          from it. The day-to-day level (which carries the bias) is stripped &mdash; each day's
+          pixels have that day's own lake average subtracted, leaving only the small, roughly
+          bias-free offsets. Those are composited per pixel, then the day-weighted monthly figure
+          (the readout number, no clear-sky bias) is added back.
+          <em>Result:</em> the same within-lake pattern as the plain composite, but the overall
+          level now matches the headline number to ~0.05&nbsp;°C &mdash; far below the product's own
+          ~1&ndash;2&nbsp;°C accuracy.</li>
         <li>Once a month's or year's data is fetched, browsing inside it is instant — only the map's
           satellite image still needs a fresh request per day, since that's genuinely a new picture
           each time.</li>

@@ -435,13 +435,31 @@ feedback while testing it:
 - **The whole-month view uses its own Month selector**, separate from the daily
   calendar, because every day inside one month gives the *same* monthly summary — there
   was no reason to force a day-level choice onto a month-level question.
-- **The whole-month map is a bias-corrected monthly composite.** A naïve per-pixel
-  monthly average runs ~0.5 °C warm, because warm days over Balaton are clearer and so
-  contribute more pixels ("clear-sky bias"). Instead, each day's pixels first have that
-  day's own lake-average subtracted (leaving only each pixel's *position* relative to the
-  lake), those patterns are composited, and the day-weighted monthly figure (the number
-  in the readout) is added back. The map then shows the within-lake warm/cool pattern
-  *and* its overall level matches the headline number to ~0.05 °C.
+- **The whole-month map is a bias-corrected monthly composite.**
+
+  *The problem.* The obvious way to draw a monthly map is: for each pixel, average its
+  temperature over the days it was clear. But clouds over Balaton aren't random — **warm
+  days are the clearer ones** (high pressure, sun), so warm days contribute far more
+  pixels to that average than cold days do. The result — "clear-sky bias" — is a map that
+  runs about **0.5 °C warmer** than the true monthly mean, every month, systematically.
+  That map would visibly disagree with the "Average lake surface" number next to it.
+
+  *Two options were considered.* (a) Show that plain composite and add a note that it runs
+  ~0.5 °C warm. (b) Correct the bias. Option (b) was chosen — a 0.5 °C *systematic,
+  every-month* error is not something to knowingly display, and the correction is cheap.
+
+  *The correction.* Every pixel reading splits into **that day's lake average** plus **how
+  far the pixel sat from it** (e.g. 8 °C on a shore pixel = 9 °C lake average that day −
+  1 °C). The day-to-day *level* (which carries the bias) is stripped out: each day's pixels
+  have that day's own lake average subtracted, leaving only the offsets — small, roughly
+  centred on zero, and roughly bias-free (a shore pixel is +1 °C whether the day is warm or
+  cold). Those offsets are composited per pixel, and then the **day-weighted monthly figure
+  — the number in the readout, which has no clear-sky bias — is added back on top**.
+
+  *Result.* The map shows the real within-lake warm/cool pattern, and its overall level
+  matches the headline number to about **0.05 °C** — a residual far below the product's own
+  ~1–2 °C accuracy, with no consistent direction. The pattern is identical to the plain
+  composite; only the level is fixed.
 - **Client-side caching by month and by year**: once a month's (or year's) data has been
   fetched from Earth Engine, browsing within that same month/year re-uses it instantly
   instead of re-querying — only the actual satellite image on the map still needs a fresh
