@@ -299,10 +299,12 @@ panel.add(ui.Label(
   + '(±5-day window). The passes are never merged. Heavy cloud = no reading.',
   {fontSize: '10px', color: '#888', margin: '0'}));
 panel.add(ui.Label(
-  'Validated: our monthly averages track independent Landsat surface temperature within ~0.5 °C '
-  + 'over 2003–2024, and every flagged warm anomaly matches the Copernicus European climate record '
-  + '— validated for spotting unusual readings, not exact degrees. The "Weather" panel is '
-  + 'ERA5-Land reanalysis: context for a reading, never a measurement of the water.',
+  'Validated: over 2003–2024, our monthly average for a given month sits within ~0.5 °C of what '
+  + 'Landsat (a different satellite) measured for the same month, and every warm spell the tool '
+  + 'flags (Feb 2024, summer 2024, 2024 overall…) matches the Copernicus Climate Change Service’s '
+  + 'published European climate bulletins. Reliable for spotting unusual readings, not calibrated '
+  + 'to the exact degree. The "Weather" panel is ERA5-Land reanalysis — context, never a '
+  + 'measurement of the water.',
   {fontSize: '10px', color: '#888', margin: '4px 0 0 0'}));
 
 /* ------------------------------------------------------- readout components */
@@ -539,11 +541,10 @@ function fillDailyReadout(streamId, dstr, dayName, p) {
 
 function fillPassTable(dstr, byStream) {
   passTablePanel.clear();
-  passTablePanel.add(ui.Label('The four passes, in the order they happen on this date',
+  passTablePanel.add(ui.Label('The same date seen by each satellite pass',
     {fontWeight: 'bold', fontSize: '12px', margin: '4px 0 1px 0'}));
   passTablePanel.add(ui.Label(
-    '"Aqua pre-dawn" is the small hours of this date (~03:00) — the first reading, not the last. '
-    + 'Each pass is judged on its own; they are never averaged.',
+    'Each pass is measured and judged on its own — they are never averaged together.',
     {fontSize: '10px', color: '#888', margin: '0 0 3px 0'}));
 
   // Every cell — header and body — sets margin:'0' and the same width, so the
@@ -648,8 +649,8 @@ function fillWeatherPanel(dstr, streamId, w) {
   weatherPanel.add(ui.Label(
     'Calm, sunny weather lets the surface skin run hot by day and cold before dawn; wind mixes it '
     + 'away, cloud and cold air pull it toward the air. "% of a clear day" = the day\'s sunshine '
-    + '÷ the cloudless maximum for this date and latitude (from Sun geometry, less ~25% for a clean '
-    + 'atmosphere). Wind over this small lake reads a little low.',
+    + '÷ the cloudless maximum for this date and latitude (Sun geometry, less ~25% for a clean '
+    + 'atmosphere). ERA5-Land\'s ~9 km grid is coarse next to the lake, so its wind runs a little low.',
     {fontSize: '9px', color: '#888', margin: '4px 0 0 0'}));
 }
 
