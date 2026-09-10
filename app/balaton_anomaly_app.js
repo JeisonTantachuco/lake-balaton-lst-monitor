@@ -715,8 +715,9 @@ function fillMonthlyReadout(streamId, monthName, p) {
   monthlyReadout.add(kv('Biggest single-day jump',
     '+' + fmt(p.max_anomaly_vs_median_c) + ' °C on ' + p.max_anomaly_vs_median_date));
   monthlyReadout.add(ui.Label(
-    'Map: this month pixel by pixel — where the lake ran warmer or cooler — rescaled so its '
-    + 'overall level matches the figure above. Blank areas were never seen clearly.',
+    'Map: this month pixel by pixel — where the lake ran warmer or cooler. Rescaled so its level '
+    + 'matches the figure above: a plain pixel average runs ~0.5 °C warm because warm days are the '
+    + 'clearer ones ("clear-sky bias"). Blank areas were never seen clearly.',
     {fontSize: '11px', color: '#999', margin: '3px 0 0 0'}));
 }
 
