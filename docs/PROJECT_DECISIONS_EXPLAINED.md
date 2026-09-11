@@ -279,28 +279,65 @@ underlying data explicitly carries what coverage the strict rule *would* have gi
 nothing is hidden — a future user or reviewer can always see exactly how much looser this
 rule is than the textbook one.
 
-### 4.8 Two residual artefacts, spotted and investigated, not "fixed"
+### 4.8 Two things spotted while looking at the map, investigated, not "fixed"
 
-Reviewing the app surfaced two visual patterns that are worth naming plainly, even though
-neither changes the accepted-pixel rule above. Full evidence, dates, and numbers:
+Reviewing the app turned up two visual patterns worth explaining properly, even though neither
+changes the accepted-pixel rule above. Full evidence, every date and number:
 `docs/CLOUD_EDGE_AND_FOG_ARTIFACTS_NOTE.md`.
 
-- **Cold rims around cloud gaps (daytime).** Pixels bordering a cloud-masked hole often read a
-  little too cold — a pixel that's mostly clear water but partly cloud can still pass `MOD35` as
-  "clear," and cloud tops are far colder than the lake, so even light contamination pulls the
-  reading down. Confirmed on four dates (effect from −0.8 °C to −3.1 °C right at the edge,
-  shrinking with distance). Not correctable by tightening the pixel filter — that trade-off was
-  already rejected once by `QA-002`, for the same reason: it would shrink the already-thin
-  nighttime record further.
-- **A "salt-and-pepper" pattern at pre-dawn, likely fog.** Some pre-dawn passes (e.g. 18 Aug 2026)
-  show scattered, noisy dropouts rather than one clean-edged gap — about twice as jumpy
-  pixel-to-pixel as a normal daytime cloud edge. Three independent checks point to shallow lake
-  fog rather than ordinary cloud: the regional weather model said that hour was mostly clear
-  (13 % cloud) while MODIS still rejected most of the lake (too small-scale for a 31 km model
-  cell to see); the air was close to saturation (3.2 °C from the dew point, vs 6.6–11.7 °C on
-  clear comparison nights); and a light breeze that night could break a fog layer into patches.
-  This led directly to the **"Air vs dew point" fog-risk reading** now in the weather panel
-  (§10) — the one weather signal that means something at night, since sunshine needs daylight.
+**Pattern one — a cold ring around cloud holes, in the daytime.** Zoom in on the edge of a
+cloud-shaped gap in the map and the pixels right at the border are often a touch colder than
+pixels a few cells further in — a faint cold rim around the hole, not a flat temperature up to
+the mask's edge.
+
+*Example:* think of a MODIS pixel as one small photograph, 1 km on a side. A cloud doesn't line
+up with that square's edges — right at a cloud's boundary, a pixel can be *mostly* clear lake but
+*partly* cloud. The camera can't split that into two readings; it reports one blended brightness
+for the whole square. Cloud tops are far colder than the lake surface, so even a small sliver of
+cloud mixed into the pixel drags its apparent temperature down — and NASA's own cloud test
+doesn't always catch contamination that small, so the pixel still gets waved through as "clear."
+We confirmed this on four separate dates (28 Aug 2026, near Balatonfüzfő / Siófok /
+Balatonakarattya, included) — pixels right next to a hole ran **0.8–3.1 °C colder** than pixels
+further from it, every time there was a real, moderate-sized gap to check.
+
+- **Plain:** the camera blends part-cloud, part-water into one reading, and cloud always wins the
+  blend because it's so much colder.
+- **Formal:** sub-pixel cloud contamination surviving `MOD35`'s cloud test, concentrated at cloud
+  edges where optical thickness tapers rather than cutting off sharply. `QA-002` runs downstream
+  of that test and cannot re-detect it. Not correctable by tightening the pixel filter — that
+  trade-off (less coverage for less edge risk) was already rejected once, for the same reason: it
+  would shrink the already-thin nighttime record further.
+
+**Pattern two — a "salt-and-pepper" scatter before dawn, probably fog.** Some pre-dawn passes
+don't show one clean gap with a cold rim at all — instead, the temperature jumps between colder
+and warmer almost at random from one pixel to its neighbour, like a checkerboard instead of one
+solid cloud shape, and only a fifth or so of the lake comes through clearly.
+
+*Example — 18 August 2026, Aqua pre-dawn:* three separate checks, like a small detective story.
+**(1) The jumpiness itself** — neighbouring pixels differed by about 1 °C on average, roughly
+twice as jumpy as a normal daytime cloud edge (0.45 °C); real cloud usually forms one coherent
+shape, not scattered noise. **(2) The regional weather model for that hour** said the sky was
+mostly clear, only 13 % cloud — but MODIS still rejected 78 % of the lake. A model can't be that
+wrong about a large storm system, so whatever MODIS saw was *smaller* than the model's 31 km grid
+cells can even represent. **(3) How close the air was to its dew point** (the temperature at
+which mist starts to condense) — only 3.2 °C away, versus 6.6–11.7 °C on three clear comparison
+nights. Air that close to saturation, on a calm night after hours of cooling, is exactly when
+shallow fog forms over a lake — patchy, sitting right on the water, each little patch smaller
+than MODIS's 1 km squares, and a light breeze that night (4.2 m/s) would have stirred it into
+drifting patches rather than one smooth sheet. Put together: not a storm the model missed, but
+fog too small and too local for anything except MODIS's own per-pixel test to notice — and even
+that test only half-catches it, which is exactly the scattered pattern on screen.
+
+- **Plain:** thin patchy mist sitting on the water, smaller than a satellite pixel and smaller
+  than a weather model can see, catches the satellite's cloud test unevenly from one square to
+  the next.
+- **Formal:** hypothesised shallow radiation fog, sub-pixel and spatially discontinuous,
+  undetected by `ECMWF/ERA5/HOURLY total_cloud_cover` (~31 km) but partially flagged by MODIS's
+  thermal-only nighttime cloud test. Evidence: neighbour-pixel roughness ≈2× a daytime
+  cloud-edge case; ERA5 regional cloud fraction 13 % vs 78 % MODIS rejection; ERA5-Land dew-point
+  depression 3.2 °C vs 6.6–11.7 °C on three clear control nights. This is what motivated the
+  **"Air vs dew point" fog-risk reading** now in the weather panel (§10) — the one weather signal
+  that still means something at night, since sunshine needs daylight to say anything at all.
 
 ---
 
