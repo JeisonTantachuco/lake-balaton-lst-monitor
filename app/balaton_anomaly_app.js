@@ -347,6 +347,14 @@ function sunWordPct(frac) {
 function windWord(ms) {
   return ms < 1.5 ? 'calm' : ms < 2.5 ? 'light air' : ms < 4 ? 'breezy' : 'windy';
 }
+// How close the air is to saturation (air temperature minus dew point). A small
+// gap means fog is plausible — this is the one weather signal that works at
+// night too, unlike sunshine, which needs daylight to mean anything. Bands are
+// set from a tested comparison: a night with visible MODIS fog-like dropouts
+// measured ~3 C; clean nights measured 6.6-11.7 C.
+function fogWord(depC) {
+  return depC < 2.5 ? 'fog likely' : depC < 5 ? 'fog possible' : 'fog unlikely';
+}
 
 /* -------------------------------------------------------- month data cache */
 
@@ -413,6 +421,8 @@ function loadWeather(dstr, streamId, callback) {
       weatherCache[key] = {
         tPass: h.temperature_2m - 273.15,
         wind: Math.sqrt(u * u + v * v),
+        // Kelvin difference == Celsius difference, no conversion needed.
+        dewDepC: num(h.dewpoint_temperature_2m, function (x) { return h.temperature_2m - x; }),
         tMin: num(d.temperature_2m_min, function (x) { return x - 273.15; }),
         tMax: num(d.temperature_2m_max, function (x) { return x - 273.15; }),
         solarKwh: num(d.surface_solar_radiation_downwards_sum, function (x) { return x / 3.6e6; }),
@@ -630,6 +640,12 @@ function fillWeatherPanel(dstr, streamId, w) {
 
   weatherPanel.add(kv('Air at the pass', fmt(w.tPass) + ' °C'));
   weatherPanel.add(kv('Wind at the pass', fmt(w.wind) + ' m/s — ' + windWord(w.wind)));
+  // Sunshine only means something in daylight, so it can't tell you whether a
+  // night pass was clear. Dew-point gap works at any hour — how close the air
+  // was to saturation, i.e. how plausible fog was right then.
+  if (w.dewDepC !== null) {
+    weatherPanel.add(kv('Air vs dew point', fmt(w.dewDepC) + ' °C — ' + fogWord(w.dewDepC)));
+  }
 
   // "That day overall" in its own framed box so it doesn't read as one long line.
   // Sun is shown as a fraction of the cloudless maximum for this date + latitude,
@@ -650,7 +666,9 @@ function fillWeatherPanel(dstr, streamId, w) {
     'Calm, sunny weather lets the surface skin run hot by day and cold before dawn; wind mixes it '
     + 'away, cloud and cold air pull it toward the air. "% of a clear day" = the day\'s sunshine '
     + '÷ the cloudless maximum for this date and latitude (Sun geometry, less ~25% for a clean '
-    + 'atmosphere). ERA5-Land\'s ~9 km grid is coarse next to the lake, so its wind runs a little low.',
+    + 'atmosphere) — only meaningful in daylight. "Air vs dew point" is a rough fog-risk reading '
+    + 'that works at any hour, including the two night passes. ERA5-Land\'s ~9 km grid is coarse '
+    + 'next to the lake, so its wind runs a little low.',
     {fontSize: '11px', color: '#888', margin: '4px 0 0 0'}));
 }
 
