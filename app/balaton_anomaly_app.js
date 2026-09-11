@@ -670,9 +670,23 @@ function updateMonthly() {
   loadYear(year, function (byStream) {
     var p = byStream[streamId].byMonth[ym];
     fillMonthlyReadout(streamId, monthName, p);
-    drawMonthlyMap(streamId, ym, p && p.state === 'reported' ? p.monthly_mean_lst_c : null);
     drawMonthlySeriesChart(monthlyChartPanel, byStream[streamId].list,
       year + ' — ' + STREAMS[streamId].short, ym);
+
+    if (!p || p.state !== 'reported') { drawMonthlyMap(streamId, ym, null, null); return; }
+    // The bias-corrected map needs each day's own lake-average (see drawMonthlyMap).
+    // Reuse the daily records already computed by the Phase 3 engine (loadMonth is
+    // cached — free if this month was already opened in the single-day view) rather
+    // than recomputing a fresh pixel reduction per image — that recomputation was
+    // the main reason the monthly view got slower.
+    loadMonth(ym, function (dailyByStream) {
+      var dayMeans = {};
+      var byDate = dailyByStream[streamId].byDate;
+      for (var d in byDate) {
+        if (typeof byDate[d].daily_lst_c === 'number') { dayMeans[d] = byDate[d].daily_lst_c; }
+      }
+      drawMonthlyMap(streamId, ym, p.monthly_mean_lst_c, dayMeans);
+    });
   });
 }
 
@@ -728,22 +742,28 @@ function fillMonthlyReadout(streamId, monthName, p) {
 // that day's own lake mean so only each pixel's position relative to the lake is
 // left; composite those; add the day-weighted monthly figure back. Blank = a pixel
 // never seen clearly.
-function drawMonthlyMap(streamId, ym, monthlyMeanC) {
+//
+// Each day's lake mean is looked up from `dayMeans` (the already-fetched Phase 3
+// daily records — see updateMonthly) instead of being recomputed pixel by pixel:
+// a fresh reduceRegion per image was the main reason this view got noticeably
+// slower once the bias correction was added.
+function drawMonthlyMap(streamId, ym, monthlyMeanC, dayMeans) {
   if (monthlyMeanC === null || monthlyMeanC === undefined) {
     setPixelLayer(null); updateLegend(null); return;
   }
   var s = STREAMS[streamId];
   var start = ee.Date(ym + '-01');
   var col = ee.ImageCollection(s.col).filterDate(start, start.advance(1, 'month'));
+  var dayMeanDict = ee.Dictionary(dayMeans || {});
   col.size().evaluate(function (n) {
     if (!n) { setPixelLayer(null); updateLegend(null); return; }
     var pattern = col.map(function (img) {
-      var lstC = acceptedLstC(ee.Image(img), s);
-      var dayMean = ee.Dictionary(lstC.reduceRegion({
-        reducer: ee.Reducer.mean(), geometry: LAKE_GEOM, scale: 1000,
-        maxPixels: 1e7, bestEffort: true})).get('lst_c');
-      return lstC.subtract(ee.Number(ee.Algorithms.If(dayMean, dayMean, 0)))
-        .toFloat().rename('lst_c');
+      img = ee.Image(img);
+      var lstC = acceptedLstC(img, s);
+      // A date missing from dayMeans (no accepted pixels that day) defaults to 0 —
+      // harmless, since lstC is then fully masked and contributes nothing anyway.
+      var dayMean = ee.Number(dayMeanDict.get(img.date().format('YYYY-MM-dd'), 0));
+      return lstC.subtract(dayMean).toFloat().rename('lst_c');
     }).mean();
     var meanC = pattern.add(monthlyMeanC).toFloat().clip(LAKE_GEOM);
     setPixelLayer(meanC, s.short + ' — ' + ymLabel(ym) + ' mean');   // fixed LST_VIS scale
