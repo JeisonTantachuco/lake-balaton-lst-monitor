@@ -492,6 +492,34 @@
         lake even on good nights — which is why the low-coverage mark shows up so often on the
         pre-dawn and evening rows. Every nighttime record also stores what the strict rule
         would have shown, so nothing is hidden.</p></div>
+
+      <h3>4.8 · Two residual artefacts, investigated, not &quot;fixed&quot;</h3>
+      <p>Reviewing the app surfaced two visual patterns worth naming plainly, even though neither
+        changes the accepted-pixel rule above. Full evidence and dates:
+        <code>docs/CLOUD_EDGE_AND_FOG_ARTIFACTS_NOTE.md</code>.</p>
+      <div class="callout">
+        <span class="k">Cold rims around cloud gaps (daytime)</span>
+        <p>Pixels bordering a cloud-masked hole often read a little too cold — a pixel that's
+          mostly clear water but partly cloud can still pass NASA's cloud test as &quot;clear,&quot;
+          and cloud tops are far colder than the lake, so even light contamination pulls the
+          reading down. Confirmed on four dates: the edge effect ran from &minus;0.8&nbsp;°C to
+          &minus;3.1&nbsp;°C, shrinking with distance from the gap. Not correctable by tightening
+          the pixel filter — that trade-off was already rejected once by <span class="mono">QA-002</span>,
+          for the same reason it would shrink the already-thin nighttime record further.</p>
+      </div>
+      <div class="callout">
+        <span class="k">A &quot;salt-and-pepper&quot; pattern at pre-dawn — likely fog</span>
+        <p>Some pre-dawn passes (e.g. 18 Aug 2026) show scattered, noisy dropouts rather than one
+          clean-edged gap — about twice as jumpy pixel-to-pixel as a normal daytime cloud edge.
+          Three checks point to shallow lake fog rather than ordinary cloud: the regional weather
+          model said that hour was mostly clear (13% cloud) while MODIS still rejected most of the
+          lake — too small-scale for a 31&nbsp;km model cell to see; the air was close to
+          saturation (3.2&nbsp;°C from the dew point, vs 6.6&ndash;11.7&nbsp;°C on clear comparison
+          nights); and a light breeze that night could break a fog layer into patches. This led
+          directly to the <strong>&quot;Air vs dew point&quot;</strong> fog-risk reading now in the
+          weather panel (§10) — the one weather signal that means something at night, since
+          sunshine needs daylight.</p>
+      </div>
     </section>
 
     <section class="doc" id="s5">
@@ -651,6 +679,11 @@
           away); it is never a measurement of the water (<span class="mono">DATA-003</span>).
           Sunshine is shown as <strong>&quot;% of a clear day&quot;</strong> (see glossary) so it
           compares across seasons.</li>
+        <li>The panel also shows <strong>&quot;Air vs dew point&quot;</strong> — how close the air
+          is to saturation, the standard fog-risk indicator. Sunshine only describes daylight, so
+          it says nothing about a <em>night</em> pass; the dew-point gap works at any hour. Added
+          after investigating a noisy pre-dawn pass (§4.8) — see
+          <code>docs/CLOUD_EDGE_AND_FOG_ARTIFACTS_NOTE.md</code> for the evidence.</li>
       </ul>
     </section>
 
