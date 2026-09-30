@@ -48,23 +48,48 @@ var ERA5_HOURLY = 'ECMWF/ERA5_LAND/HOURLY';
 // hours OF D (~03:00), i.e. it is the FIRST reading of that date, not the last.
 var STREAMS = {
   aqua_night:  {short: 'Aqua pre-dawn', clock: '~02:30–03:30 Hungarian time',
-                label: 'Aqua — pre-dawn (~02:30–03:30 Hungarian time)',
+                clockWinter: '~01:30–02:30 Hungarian time',
+                label: 'Aqua — pre-dawn (~02:30–03:30 Hungarian time, 1 h earlier in winter)',
                 col: 'MODIS/061/MYD11A1', lst: 'LST_Night_1km', qc: 'QC_Night',
                 time: 'Night_view_time', angle: 'Night_view_angle', utcHour: 1},
   terra_day:   {short: 'Terra morning', clock: '~10:30–11:30 Hungarian time',
-                label: 'Terra — mid-morning (~10:30–11:30 Hungarian time)',
+                clockWinter: '~09:30–10:30 Hungarian time',
+                label: 'Terra — mid-morning (~10:30–11:30 Hungarian time, 1 h earlier in winter)',
                 col: 'MODIS/061/MOD11A1', lst: 'LST_Day_1km',   qc: 'QC_Day',
                 time: 'Day_view_time',   angle: 'Day_view_angle', utcHour: 9},
   aqua_day:    {short: 'Aqua afternoon', clock: '~13:30–14:30 Hungarian time',
-                label: 'Aqua — early afternoon (~13:30–14:30 Hungarian time)',
+                clockWinter: '~12:30–13:30 Hungarian time',
+                label: 'Aqua — early afternoon (~13:30–14:30 Hungarian time, 1 h earlier in winter)',
                 col: 'MODIS/061/MYD11A1', lst: 'LST_Day_1km',   qc: 'QC_Day',
                 time: 'Day_view_time',   angle: 'Day_view_angle', utcHour: 12},
   terra_night: {short: 'Terra evening', clock: '~21:00–22:00 Hungarian time',
-                label: 'Terra — evening (~21:00–22:00 Hungarian time)',
+                clockWinter: '~20:00–21:00 Hungarian time',
+                label: 'Terra — evening (~21:00–22:00 Hungarian time, 1 h earlier in winter)',
                 col: 'MODIS/061/MOD11A1', lst: 'LST_Night_1km', qc: 'QC_Night',
                 time: 'Night_view_time', angle: 'Night_view_angle', utcHour: 20}
 };
 var STREAM_ORDER = ['aqua_night', 'terra_day', 'aqua_day', 'terra_night'];
+
+// The four windows above are the real measured overpass times in CEST (summer clock);
+// CET (winter) is exactly one hour earlier (`clockWinter`), per the standing note that
+// Hungarian clock time is CET in winter, CEST in summer. EU summer time runs from the
+// last Sunday in March 01:00 UTC to the last Sunday in October 01:00 UTC.
+function isHungarianSummerTime(iso) {
+  var probe = new Date(iso + 'T12:00:00Z');   // midday UTC, safely clear of the 01:00 switch
+  var year = probe.getUTCFullYear();
+  function lastSundayAt1amUtc(monthIndex) {   // monthIndex is 0-based (2 = March, 9 = October)
+    var d = new Date(Date.UTC(year, monthIndex + 1, 1, 1, 0, 0));
+    d.setUTCDate(d.getUTCDate() - 1 - d.getUTCDay());   // back up to the last Sunday
+    return d;
+  }
+  return probe >= lastSundayAt1amUtc(2) && probe < lastSundayAt1amUtc(9);
+}
+// The clock window to display for one pass on one specific date — summer or winter,
+// picked for the date actually on screen rather than shown as one blended estimate.
+function passClockWindow(streamId, iso) {
+  var s = STREAMS[streamId];
+  return isHungarianSummerTime(iso) ? s.clock : s.clockWinter;
+}
 
 var LST_VIS = {min: -5, max: 32,
                palette: ['#2166ac', '#67a9cf', '#d1e5f0', '#fddbc7', '#ef8a62', '#b2182b']};
@@ -625,7 +650,7 @@ function fillPassTable(dstr, byStream) {
 // pass's overpass hour; sunshine and rain are whole-day totals.
 function fillWeatherPanel(dstr, streamId, w) {
   weatherPanel.clear();
-  weatherPanel.add(ui.Label('Weather — ' + STREAMS[streamId].short + ' (' + STREAMS[streamId].clock + ')',
+  weatherPanel.add(ui.Label('Weather — ' + STREAMS[streamId].short + ' (' + passClockWindow(streamId, dstr) + ')',
     {fontWeight: 'bold', fontSize: '14px', margin: '8px 0 1px 0'}));
   weatherPanel.add(ui.Label(
     'ERA5-Land reanalysis — context for the reading, not a measurement of the water.',

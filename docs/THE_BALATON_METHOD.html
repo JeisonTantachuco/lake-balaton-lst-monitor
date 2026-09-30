@@ -302,7 +302,9 @@
       <div class="chips"><span class="chip">DATA-001</span><span class="chip">DATA-002</span><span class="chip">DATA-003</span><span class="chip">DATA-004</span></div>
       <p>Two NASA satellites carrying the MODIS instrument give a long, four-times-daily record of
         the lake's actual surface temperature. Each pass is kept as its own separate stream, shown
-        in the order they happen through a date (Hungarian clock time; winter is ~1 h earlier):</p>
+        in the order they happen through a date (Hungarian clock time — CET in winter, CEST in
+        summer, winter exactly 1&nbsp;h earlier; the app now shows whichever one applies to the
+        selected date, not one blended estimate):</p>
       <div class="stream-grid">
         <div><div class="who">Aqua — pre-dawn</div><div class="when">~03:00 (Hungary)</div></div>
         <div><div class="who">Terra — mid-morning</div><div class="when">~11:00 (Hungary)</div></div>
@@ -313,12 +315,14 @@
         so it is the <strong>first</strong> of the four, not the last. A lake heats through the day
         and cools overnight — mixing &quot;how warm at 2 pm&quot; with &quot;how warm at 3 am&quot;
         into one number would hide the real signal, not reveal it (more in §08).</p>
-      <p><strong>ERA5-Land</strong> reanalysis (air temperature, wind, sunlight) is now shown as
-        weather context in the single-day view (§10) — never a replacement for the satellite
-        reading. Two more sources are approved for later: <strong>Landsat</strong> (sharper, 30 m
-        images, for zooming into a specific hot day), and any <strong>field measurements</strong>,
-        an optional cross-check only, since a thermometer in the water measures something subtly
-        different from what a satellite sees from orbit.</p>
+      <p><strong>ERA5-Land</strong> reanalysis (air temperature, wind, sunlight) is <strong>built
+        and live</strong> as weather context in the single-day view (§10) — never a replacement
+        for the satellite reading. <strong>Landsat</strong> (sharper, 30 m images, for zooming into
+        a specific hot day) is approved but not yet built into the app — so far it has only been
+        used once, as an independent check in the §11 validation, not as something you can click
+        into. <strong>Field measurements</strong> were approved as an optional future cross-check,
+        but none exist or are expected for Balaton — there is no plan to obtain any, so treat this
+        as dormant, not a pending feature.</p>
     </section>
 
     <section class="doc" id="s3">
@@ -388,11 +392,20 @@
         blank dots. A weather front gives a clean diagonal edge — clear on one side, blank on the
         other.</div>
       <div class="pf"><p class="f"><b>Formal:</b> NASA's <code>MOD35</code> cloud mask, applied
-        upstream. In the pixel's quality byte this shows up as <code>mandatory_qa&nbsp;=&nbsp;2</code>
-        (&quot;LST not produced due to cloud&quot;). A sibling code,
-        <code>mandatory_qa&nbsp;=&nbsp;3</code>, means &quot;not produced for another reason&quot; —
-        thin cloud, aerosol, a missing atmospheric-correction input — also blank, also not our
-        call.</p></div>
+        upstream, decides <code>mandatory_qa</code> — the first of §4.3's four report-card grades.
+        It only has <strong>four</strong> possible values, and it's the same definition for all
+        four passes (Terra/Aqua × day/night just read it from a different band).</p></div>
+      <table class="compare">
+        <thead><tr><th scope="col"><code>mandatory_qa</code></th><th scope="col">Meaning</th><th scope="col">What we do</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td>LST produced, good quality, no further checking needed</td><td>kept</td></tr>
+          <tr><td>1</td><td>LST produced, other quality — worth a closer look at the other three grades</td><td>kept (almost all our nighttime pixels carry this grade — see §4.5)</td></tr>
+          <tr><td>2</td><td>LST <strong>not produced</strong>, because of cloud</td><td>blank — not our decision</td></tr>
+          <tr><td>3</td><td>LST <strong>not produced</strong>, for a reason other than cloud (thin haze, aerosol, a missing correction input)</td><td>blank — not our decision</td></tr>
+        </tbody>
+      </table>
+      <p>So &quot;blank&quot; always means 2 or 3; a real number always means 0 or 1. §4.5 explains
+        which of 0/1 (and the other three grades) we actually choose to keep.</p>
 
       <h3>4.3 · The report card on every surviving pixel</h3>
       <p>Pixels that <em>do</em> arrive with a temperature carry a one-byte &quot;report card&quot; —
@@ -423,16 +436,31 @@
 
       <h3>4.4 · Our own sanity checks</h3>
       <p>On top of MODIS's report card we add three cheap &quot;is the housekeeping intact&quot;
-        checks — these mostly catch fill values and corrupt metadata, not bad weather:</p>
+        checks — these mostly catch fill values and corrupt metadata, not bad weather. <strong>If a
+        pixel fails any one of the three it's treated exactly like a failed report-card grade:
+        blank, no number, not counted in that pass's average</strong> — no partial credit, no
+        separate category on the map, just another hole.</p>
       <ul>
-        <li><strong>Raw temperature value</strong> in a physically possible range — rejects the fill
-          value 0 and impossible numbers. <span class="rng">raw DN in [7500, 65535]</span></li>
-        <li><strong>Overpass time present and sane.</strong> <span class="rng">view time in [0, 240]</span></li>
+        <li><strong>Raw temperature value in a physically possible range.</strong>
+          <span class="rng">raw DN in [7500, 65535]</span> — this does <em>not</em> reject 0&nbsp;°C
+          (a completely ordinary winter-night reading, converting to a raw value around 13,657, well
+          inside the accepted range). What it actually rejects is the raw value <strong>0
+          itself</strong> — MODIS's own &quot;nothing was written here&quot; placeholder, which
+          converts to −273.15&nbsp;°C (absolute zero) if left uncaught — plus a few other clearly
+          broken raw values outside the window. The fill value and 0&nbsp;°C are two different
+          numbers that just happen to share a digit in casual conversation; only the first is
+          rejected.</li>
+        <li><strong>Overpass time present and sane.</strong> <span class="rng">view time in [0, 240]</span>
+          — this field is the pixel's own local solar time of observation, stored as hour-of-day ×10
+          (so 0–240 means 0.0–24.0&nbsp;h). Its own fill value is 255, which this check catches; it's
+          a &quot;was this field even written&quot; check, not a judgement about what time of day
+          the pixel was seen.</li>
         <li><strong>Viewing angle present and sane.</strong> <span class="rng">view angle in [0, 130]</span>
-          — this one also carries real meaning: a pixel seen from the far edge of the swath is viewed
-          through a long slanted slice of atmosphere and its footprint is smeared larger, so an
-          extreme angle is genuinely lower quality. The rule just checks it's present and in range
-          rather than penalising oblique views directly.</li>
+          (the sensor's scan angle, stored offset by 65° so 0–130 covers the full ±65° swath; fill
+          value also 255) — this one also carries real meaning: a pixel seen from the far edge of the
+          swath is viewed through a long slanted slice of atmosphere and its footprint is smeared
+          larger, so an extreme angle is genuinely lower quality. The rule just checks it's present
+          and in range rather than penalising oblique views directly.</li>
       </ul>
 
       <h3>4.5 · The bar we set — and why not stricter</h3>
@@ -606,14 +634,22 @@
         percentile method. Minimum-sample guardrails exist in the method (e.g. no percentile below 10
         historical readings) purely for an unusual data gap — on the real lake-wide product, with
         110–195 readings behind every day, they essentially never trigger.</p>
-      <p>That percentile becomes exactly <strong>one</strong> plain-language label:</p>
-      <div class="labels-row">
-        <span class="pill p1">below normal</span>
-        <span class="pill">within normal range</span>
-        <span class="pill">warm</span>
-        <span class="pill">unusually warm</span>
-        <span class="pill p5">extreme warm observation</span>
-      </div>
+      <p>That percentile becomes exactly <strong>one</strong> plain-language label, chosen by which
+        band it falls into:</p>
+      <table class="compare">
+        <thead><tr><th scope="col">Percentile band</th><th scope="col">App label</th></tr></thead>
+        <tbody>
+          <tr><td>below the 10th</td><td><span class="pill p1">below normal</span></td></tr>
+          <tr><td>10th – 90th</td><td><span class="pill">within normal range</span></td></tr>
+          <tr><td>90th – 95th</td><td><span class="pill">warm</span></td></tr>
+          <tr><td>95th – 99th</td><td><span class="pill">unusually warm</span></td></tr>
+          <tr><td>above the 99th</td><td><span class="pill p5">extreme warm observation</span></td></tr>
+        </tbody>
+      </table>
+      <p style="font-size:13.5px;color:var(--ink-soft)">The bottom two rows are the cold-side mirror: below the 10th covers
+        everything unusually cold as well as ordinarily cool — there's no separate
+        &quot;extreme cold&quot; label yet, since the lake's cold extremes haven't been given the
+        same multi-tier treatment as the warm side.</p>
       <p>Deliberately <strong>not</strong> called a &quot;heatwave&quot; or &quot;thermal event&quot;
         unless a properly validated method for sustained multi-day events exists — one warm day is a
         different, smaller scientific claim than a persistent heatwave, and the wording never
@@ -701,7 +737,11 @@
         <li>The four passes are shown <strong>in the order they happen</strong> — Aqua pre-dawn
           (~03:00 Hungarian time, the <em>first</em> reading of the date, not the last), Terra
           ~11:00, Aqua ~14:00, Terra ~21:30. Times are the mean measured overpass times over the
-          lake (an hour earlier in winter); the old labels were rounded and off by up to ~1.5&nbsp;h.</li>
+          lake; the old labels were rounded and off by up to ~1.5&nbsp;h. <strong>The Weather
+          panel now shows the correct season's clock window for whichever date is on
+          screen</strong> (CET in winter is exactly one hour earlier than CEST in summer),
+          computed from the EU's standard summer-time switch dates, instead of one blended
+          year-round estimate.</li>
         <li>A <strong>&quot;Weather&quot; panel</strong> (single-day view) shows the ERA5-Land
           reanalysis conditions for the selected pass — air temperature and wind at the overpass
           hour, plus the day's sunshine and rain. It is context for <em>why</em> a reading was
@@ -756,11 +796,8 @@
 
     <section class="doc" id="s11b">
       <div class="section-head"><span class="num">11b</span><h2>Open and future work</h2></div>
-      <div class="chips"><span class="chip">DATA-005</span><span class="chip">DATA-006</span><span class="chip">SCOPE-001</span><span class="chip">SCOPE-003</span></div>
+      <div class="chips"><span class="chip">DATA-005</span><span class="chip">SCOPE-001</span><span class="chip">SCOPE-003</span></div>
       <ul>
-        <li>The <strong>ERA5-Land weather panel</strong> (<span class="mono">DATA-006</span>) is now
-          built (v1 &mdash; see §10); a &quot;vs normal&quot; weather comparison and a monthly
-          weather block are the obvious next steps.</li>
         <li><strong>Landsat hotspot inspection</strong> (<span class="mono">DATA-005</span>) is still
           an approved extension, not started &mdash; sharp 30&nbsp;m thermal images to zoom into one
           hot day. (§11 used Landsat only to <em>check</em> the product; this builds it in.)</li>
