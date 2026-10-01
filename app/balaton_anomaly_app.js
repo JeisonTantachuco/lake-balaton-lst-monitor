@@ -47,24 +47,20 @@ var ERA5_HOURLY = 'ECMWF/ERA5_LAND/HOURLY';
 // weather to the pass. NOTE: "Aqua pre-dawn" for date D is taken in the small
 // hours OF D (~03:00), i.e. it is the FIRST reading of that date, not the last.
 var STREAMS = {
-  aqua_night:  {short: 'Aqua pre-dawn', clock: '~02:30–03:30 Hungarian time',
-                clockWinter: '~01:30–02:30 Hungarian time',
-                label: 'Aqua — pre-dawn (~02:30–03:30 Hungarian time, 1 h earlier in winter)',
+  aqua_night:  {short: 'Aqua pre-dawn', clock: '~02:30–03:30 Hungarian time (summer)',
+                clockWinter: '~01:30–02:30 Hungarian time (winter)',
                 col: 'MODIS/061/MYD11A1', lst: 'LST_Night_1km', qc: 'QC_Night',
                 time: 'Night_view_time', angle: 'Night_view_angle', utcHour: 1},
-  terra_day:   {short: 'Terra morning', clock: '~10:30–11:30 Hungarian time',
-                clockWinter: '~09:30–10:30 Hungarian time',
-                label: 'Terra — mid-morning (~10:30–11:30 Hungarian time, 1 h earlier in winter)',
+  terra_day:   {short: 'Terra morning', clock: '~10:30–11:30 Hungarian time (summer)',
+                clockWinter: '~09:30–10:30 Hungarian time (winter)',
                 col: 'MODIS/061/MOD11A1', lst: 'LST_Day_1km',   qc: 'QC_Day',
                 time: 'Day_view_time',   angle: 'Day_view_angle', utcHour: 9},
-  aqua_day:    {short: 'Aqua afternoon', clock: '~13:30–14:30 Hungarian time',
-                clockWinter: '~12:30–13:30 Hungarian time',
-                label: 'Aqua — early afternoon (~13:30–14:30 Hungarian time, 1 h earlier in winter)',
+  aqua_day:    {short: 'Aqua afternoon', clock: '~13:30–14:30 Hungarian time (summer)',
+                clockWinter: '~12:30–13:30 Hungarian time (winter)',
                 col: 'MODIS/061/MYD11A1', lst: 'LST_Day_1km',   qc: 'QC_Day',
                 time: 'Day_view_time',   angle: 'Day_view_angle', utcHour: 12},
-  terra_night: {short: 'Terra evening', clock: '~21:00–22:00 Hungarian time',
-                clockWinter: '~20:00–21:00 Hungarian time',
-                label: 'Terra — evening (~21:00–22:00 Hungarian time, 1 h earlier in winter)',
+  terra_night: {short: 'Terra evening', clock: '~21:00–22:00 Hungarian time (summer)',
+                clockWinter: '~20:00–21:00 Hungarian time (winter)',
                 col: 'MODIS/061/MOD11A1', lst: 'LST_Night_1km', qc: 'QC_Night',
                 time: 'Night_view_time', angle: 'Night_view_angle', utcHour: 20}
 };
@@ -78,8 +74,8 @@ function isHungarianSummerTime(iso) {
   var probe = new Date(iso + 'T12:00:00Z');   // midday UTC, safely clear of the 01:00 switch
   var year = probe.getUTCFullYear();
   function lastSundayAt1amUtc(monthIndex) {   // monthIndex is 0-based (2 = March, 9 = October)
-    var d = new Date(Date.UTC(year, monthIndex + 1, 1, 1, 0, 0));
-    d.setUTCDate(d.getUTCDate() - 1 - d.getUTCDay());   // back up to the last Sunday
+    var d = new Date(Date.UTC(year, monthIndex + 1, 0, 1, 0, 0));   // last day of monthIndex, 01:00 UTC
+    d.setUTCDate(d.getUTCDate() - d.getUTCDay());                   // back up to that day's Sunday
     return d;
   }
   return probe >= lastSundayAt1amUtc(2) && probe < lastSundayAt1amUtc(9);
@@ -90,6 +86,12 @@ function passClockWindow(streamId, iso) {
   var s = STREAMS[streamId];
   return isHungarianSummerTime(iso) ? s.clock : s.clockWinter;
 }
+// Two earlier attempts at a season-aware clock in the "Satellite pass" dropdown itself
+// both broke the dropdown (rebuilding its items — even restoring the value right after —
+// left it showing "select value" until clicked twice). The dropdown's own items are back
+// to static, clock-free text (built once, below); the actual date-specific clock window
+// is shown in a separate plain label next to it instead, which only ever has its text
+// replaced (`.setValue`) — never its selection state — so there is nothing to break.
 
 var LST_VIS = {min: -5, max: 32,
                palette: ['#2166ac', '#67a9cf', '#d1e5f0', '#fddbc7', '#ef8a62', '#b2182b']};
@@ -248,12 +250,40 @@ var modeSelect = ui.Select({
 panel.add(ui.Label('View', {fontWeight: 'bold', margin: '6px 0 2px 0'}));
 panel.add(modeSelect);
 
+// One item's dropdown text: the pass name plus that specific date's own clock window,
+// e.g. "Terra morning  ~09:30–10:30 Hungarian time (winter)" — the same text used
+// everywhere else in the app for this pass, so nothing is worded two different ways.
+function streamItemLabel(streamId, iso) {
+  return STREAMS[streamId].short + '  ' + passClockWindow(streamId, iso);
+}
 var streamSelect = ui.Select({
-  items: STREAM_ORDER.map(function (id) { return {label: STREAMS[id].label, value: id}; }),
+  items: STREAM_ORDER.map(function (id) { return {label: streamItemLabel(id, LAST_EXPORT_DATE), value: id}; }),
   value: 'terra_day', style: {stretch: 'horizontal'}
 });
 panel.add(ui.Label('Satellite pass', {fontWeight: 'bold', margin: '8px 0 2px 0'}));
-panel.add(streamSelect);
+// Wrapped in its own panel so the dropdown can be swapped out wholesale when the season
+// changes (see `rebuildStreamSelect` below) without disturbing anything around it.
+var streamSelectPanel = ui.Panel();
+streamSelectPanel.add(streamSelect);
+panel.add(streamSelectPanel);
+// Two earlier attempts put the clock text inside the dropdown by mutating its existing
+// items in place (`streamSelect.items().reset(...)`) — both left the dropdown showing
+// "select value" until clicked twice, an apparent Earth Engine UI quirk with mutating a
+// live Select's items and immediately restoring its value. Rebuilding the widget from
+// scratch instead — exactly how the dropdown is built the first time, above, which has
+// never had this problem — sidesteps that quirk entirely: the new widget's `value` is
+// correct from the moment it's constructed, nothing is "restored" after the fact.
+function rebuildStreamSelect(iso) {
+  var current = streamSelect.getValue();
+  var fresh = ui.Select({
+    items: STREAM_ORDER.map(function (id) { return {label: streamItemLabel(id, iso), value: id}; }),
+    value: current, style: {stretch: 'horizontal'}
+  });
+  fresh.onChange(refresh);
+  streamSelectPanel.clear();
+  streamSelectPanel.add(fresh);
+  streamSelect = fresh;
+}
 
 // Single-day view: a date field that opens a month/year calendar when clicked
 // (drag the handle underneath for quick day-by-day scrubbing).
@@ -497,7 +527,13 @@ function updateDaily() {
   var ym = dstr.slice(0, 7);
   var dayName = Number(dstr.slice(8, 10)) + ' ' + MONTH_NAMES[Number(dstr.slice(5, 7)) - 1];
 
-  drawDailyMap(streamId, dstr);
+  rebuildStreamSelect(dstr);
+
+  // Clear any previous day's map immediately rather than leaving it on screen while the
+  // new day loads — it is redrawn below, once we know whether this day/pass actually has
+  // an accepted reading at all.
+  setPixelLayer(null);
+  updateLegend(null);
 
   dailyReadout.clear();
   dailyReadout.add(ui.Label('Loading…', {color: '#999', fontSize: '13px'}));
@@ -509,10 +545,17 @@ function updateDaily() {
   weatherPanel.add(ui.Label('Loading weather…', {color: '#999', fontSize: '13px'}));
 
   loadMonth(ym, function (byStream) {
-    fillDailyReadout(streamId, dstr, dayName, byStream[streamId].byDate[dstr]);
+    var p = byStream[streamId].byDate[dstr];
+    fillDailyReadout(streamId, dstr, dayName, p);
     fillPassTable(dstr, byStream);
     drawSeriesChart(dailyChartPanel, byStream[streamId].list,
       ymLabel(ym) + ' — ' + STREAMS[streamId].short, dstr);
+    // Only fetch/draw the pixel map when there is an actual accepted reading for this
+    // pass and date — matching the readout exactly, rather than checking separately
+    // whether *a* MODIS scene exists that day (which can be true even on a day this
+    // pass's reading was rejected outright, and previously left a pixel map on screen
+    // for a "No reading for this day" pass).
+    if (p) { drawDailyMap(streamId, dstr); } else { setPixelLayer(null); updateLegend(null); }
   });
 
   // Weather is its own fetch (a different collection from the anomaly records) —
@@ -650,7 +693,7 @@ function fillPassTable(dstr, byStream) {
 // pass's overpass hour; sunshine and rain are whole-day totals.
 function fillWeatherPanel(dstr, streamId, w) {
   weatherPanel.clear();
-  weatherPanel.add(ui.Label('Weather — ' + STREAMS[streamId].short + ' (' + passClockWindow(streamId, dstr) + ')',
+  weatherPanel.add(ui.Label('Weather — ' + STREAMS[streamId].short + ', ' + passClockWindow(streamId, dstr),
     {fontWeight: 'bold', fontSize: '14px', margin: '8px 0 1px 0'}));
   weatherPanel.add(ui.Label(
     'ERA5-Land reanalysis — context for the reading, not a measurement of the water.',
@@ -704,6 +747,11 @@ function updateMonthly() {
   var ym = monthYearSelect.getValue();
   var year = ym.slice(0, 4);
   var monthName = ymLabel(ym);
+
+  // Mid-month is an arbitrary but reasonable stand-in for "which season is this
+  // month" — the only months where it could matter (March, October) already switch
+  // partway through, so any single representative day is a judgement call.
+  rebuildStreamSelect(ym + '-15');
 
   monthlyReadout.clear();
   monthlyReadout.add(ui.Label('Loading…', {color: '#999', fontSize: '13px'}));

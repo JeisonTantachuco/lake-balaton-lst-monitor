@@ -37,9 +37,10 @@ again in the early afternoon). Four passes in all. Each is a *separate* measurem
 stream. (`DATA-001`)
 
 **The four passes and when they happen** (Hungarian clock time; CET in winter, CEST in
-summer — winter is exactly one hour earlier, and the app now shows whichever one applies
-to the date you have selected, not a single blended estimate), in the order they fall on
-a date:
+summer — winter is exactly one hour earlier, and the app's clock-time displays (the
+Weather panel header and a small note beside the "Satellite pass" picker) show only the
+one window that actually applies to the date currently on screen, never both at once), in
+the order they fall on a date:
 
 | Pass | Roughly | Note |
 |---|---|---|
@@ -219,16 +220,28 @@ any one of the three, it's treated exactly like a failed report-card grade: blan
 number, not counted in that pass's average** — there's no partial credit and no separate
 category for it on the map; it just becomes another hole.
 
-- **Raw temperature value in a physically possible range** — formally, the raw stored
-  number (before it's converted to °C) must be in `[7500, 65535]`. **This does *not*
-  reject 0 °C** — 0 °C is a completely ordinary, physically real lake reading (Balaton
-  does get close to freezing some winter nights) and converts to a raw value around
-  13,657, comfortably inside the accepted range. What this check actually rejects is the
-  raw value **0 itself** — MODIS's own "nothing was written here" placeholder, which
-  converts to −273.15 °C (absolute zero, physically impossible) if you don't catch it —
-  plus a handful of other clearly-broken raw values outside that window. In short: the
-  fill value and 0 °C are two completely different numbers that happen to share the
-  digit "0" in casual conversation; only the first is rejected.
+- **Raw temperature value in a physically possible range.** First, what "raw" means:
+  MODIS doesn't store temperature directly in its file — it stores a plain integer (a
+  "digital number", `DN`, 0 to 65,535, the full range a 16-bit counter can hold) and a
+  fixed conversion recipe: `°C = DN × 0.02 − 273.15`. Every pixel's real temperature is
+  recovered by running that recipe on its DN. The check itself looks at the DN *before*
+  that conversion, and requires `DN` in `[7500, 65535]`:
+  - **The lower bound, 7,500,** converts to `7500 × 0.02 − 273.15 = −123.15 °C` — far
+    below anything that can ever happen at Balaton, so this isn't a realistic thermometer
+    limit, it's a wide net for catching **one specific broken value: `DN = 0`**, MODIS's
+    own "nothing was written here" placeholder. A DN of 0 converts to −273.15 °C
+    (absolute zero), so without this check a blank pixel could masquerade as an
+    impossibly cold real reading. Anything strictly between `1` and `7499` would also be
+    rejected by this rule — in practice MODIS just doesn't produce values in that dead
+    zone, so it's mainly the `DN = 0` sentinel this catches.
+  - **The upper bound, 65,535,** is simply the largest number a 16-bit DN can ever be —
+    so this half of the check never actually rejects anything; it exists only for
+    completeness/symmetry.
+  - **This does *not* reject 0 °C.** 0 °C is a completely ordinary, physically real lake
+    reading (Balaton does get close to freezing some winter nights) and converts to
+    `DN ≈ 13,657` — nowhere near the rejected `DN = 0`. The fill value and 0 °C are two
+    different numbers on two different scales (DN vs. °C) that just happen to both
+    involve the digit "0" in casual conversation; only the DN-scale one is rejected.
 - **Overpass time present and sane** — formally, the `view_time` field (the pixel's own
   local solar time of observation, stored as the hour of day ×10, so `0`–`240` means
   0.0–24.0 hours) must fall in `[0, 240]`. Its own fill value is `255`, which this check
@@ -563,6 +576,26 @@ feedback while testing it:
   matches the headline number to about **0.05 °C** — a residual far below the product's own
   ~1–2 °C accuracy, with no consistent direction. The pattern is identical to the plain
   composite; only the level is fixed.
+
+  *Worked example, to make "rescaled so its level matches the figure above" concrete.*
+  Say July had 20 qualifying days: 15 warm, clear days averaging **24 °C** across the
+  lake, and 5 cooler, partly-cloudy days averaging **20 °C** across the lake (still
+  "clear enough" to count — §9's per-day threshold — just with fewer surviving pixels).
+  **The monthly figure in the readout** (what Section 9 computes) is the day-weighted
+  average of those daily lake-averages: `(15×24 + 5×20) / 20 = 23 °C`. Now picture one
+  shore pixel that genuinely runs about 1 °C above the lake average every day it's seen.
+  Because cloudier days keep fewer pixels, suppose it was visible on all 15 warm days but
+  only 2 of the 5 cool days. **The naive approach** — average that pixel's *raw* readings
+  over whichever days it happened to be visible — tilts toward the warm days it saw more
+  often: `(15×25 + 2×21) / 17 ≈ 24.4 °C`, almost a full degree above what the pixel
+  actually does relative to the lake (which is +1 °C, i.e. it should read 24 °C on a
+  23 °C month). **The correction avoids this exactly**: each day the pixel's *offset*
+  from that specific day's own lake average is computed first (+1 °C on every day it's
+  seen, regardless of which days those are), the offsets are averaged (+1 °C), and the
+  true monthly figure (23 °C, the same number in the readout) is added back —
+  `23 + 1 = 24 °C`, the pixel's real behaviour, undistorted by which days happened to be
+  cloud-free. **Blank pixels** on the map are simply ones that were never seen on *any*
+  qualifying day that month — there's no offset to average, so nothing is drawn.
 - **Client-side caching by month and by year**: once a month's (or year's) data has been
   fetched from Earth Engine, browsing within that same month/year re-uses it instantly
   instead of re-querying — only the actual satellite image on the map still needs a fresh
@@ -586,10 +619,33 @@ feedback while testing it:
   Hungarian time, the *first* reading of the date, not the last), Terra mid-morning
   (~11:00), Aqua early afternoon (~14:00), Terra evening (~21:30). Times are the mean
   measured overpass times over the lake, in Hungarian clock time; the old labels were
-  rounded nominals and off by up to ~1.5 h. **The Weather panel now shows the correct
-  season's clock window for whichever date is on screen** (CET in winter is exactly one
-  hour earlier than CEST in summer), computed from the EU's standard summer-time switch
-  dates, instead of one blended year-round estimate.
+  rounded nominals and off by up to ~1.5 h. **Every clock-time display — the Weather
+  panel header and the "Satellite pass" dropdown itself — now shows only the one
+  season's window that actually applies to whichever date is on screen, printed right
+  next to the pass name** (e.g. the dropdown reads "Terra morning  ~09:30–10:30
+  Hungarian time (winter)"), with the season spelled out explicitly rather than left for
+  the reader to infer from the two different windows. Computed from the EU's standard
+  summer-time switch dates (CET in winter is exactly one hour earlier than CEST in
+  summer), instead of one blended year-round estimate or both seasons shown side by
+  side. (The whole-month view has no single day to check, so the 15th of the selected
+  month stands in as the representative date.) Getting the clock text *inside* the
+  dropdown itself took three attempts: mutating the dropdown's existing item list in
+  place (twice) left it showing "select value" until clicked twice — an Earth Engine UI
+  quirk with restoring a Select's value right after resetting its items. The working
+  approach instead **rebuilds the whole dropdown widget from scratch** on every date
+  change (same pattern as the very first, always-worked version of this control, where
+  the value is simply correct from construction rather than "restored" afterwards).
+  **The pass name is now the same short name everywhere it appears** — the
+  dropdown, this clock label, the readout, the pass table and the charts all say "Terra
+  morning" / "Aqua afternoon" / etc. identically; an earlier, slightly different wording
+  ("Terra — mid-morning") only used in the dropdown was dropped for consistency.
+- **The single-day pixel map is now drawn only when there is an actual accepted reading**
+  for that exact pass and date — it used to be drawn whenever *any* MODIS scene existed
+  for that pass that day, which is a weaker condition: a scene can exist and still have
+  every single pixel rejected by `QA-002`, in which case the readout correctly says "No
+  reading for this day" while the map, checked separately, could still show pixels. The
+  map now waits for, and is gated on, the exact same precomputed reading the readout
+  text uses, so the two always agree.
 - **A "Weather" panel** (single-day view) shows the ERA5-Land reanalysis conditions for
   the selected pass — air temperature and wind at the overpass hour, plus the whole day's
   sunshine and rain. It is context to help explain *why* a reading was unusual (calm and

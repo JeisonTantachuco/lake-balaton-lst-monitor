@@ -303,8 +303,10 @@
       <p>Two NASA satellites carrying the MODIS instrument give a long, four-times-daily record of
         the lake's actual surface temperature. Each pass is kept as its own separate stream, shown
         in the order they happen through a date (Hungarian clock time — CET in winter, CEST in
-        summer, winter exactly 1&nbsp;h earlier; the app now shows whichever one applies to the
-        selected date, not one blended estimate):</p>
+        summer, winter exactly 1&nbsp;h earlier; the app's clock-time displays — the Weather
+        panel header and a small note beside the &quot;Satellite pass&quot; picker — now show
+        only the one season's window that applies to the selected date, never both at
+        once):</p>
       <div class="stream-grid">
         <div><div class="who">Aqua — pre-dawn</div><div class="when">~03:00 (Hungary)</div></div>
         <div><div class="who">Terra — mid-morning</div><div class="when">~11:00 (Hungary)</div></div>
@@ -441,15 +443,27 @@
         blank, no number, not counted in that pass's average</strong> — no partial credit, no
         separate category on the map, just another hole.</p>
       <ul>
-        <li><strong>Raw temperature value in a physically possible range.</strong>
-          <span class="rng">raw DN in [7500, 65535]</span> — this does <em>not</em> reject 0&nbsp;°C
-          (a completely ordinary winter-night reading, converting to a raw value around 13,657, well
-          inside the accepted range). What it actually rejects is the raw value <strong>0
-          itself</strong> — MODIS's own &quot;nothing was written here&quot; placeholder, which
-          converts to −273.15&nbsp;°C (absolute zero) if left uncaught — plus a few other clearly
-          broken raw values outside the window. The fill value and 0&nbsp;°C are two different
-          numbers that just happen to share a digit in casual conversation; only the first is
-          rejected.</li>
+        <li><strong>Raw temperature value in a physically possible range.</strong> First, what
+          &quot;raw&quot; means: MODIS doesn't store temperature directly in its file — it stores a
+          plain integer (a &quot;digital number&quot;, DN, 0 to 65,535, the full range a 16-bit
+          counter can hold) plus a fixed conversion recipe:
+          <span class="rng">°C = DN × 0.02 − 273.15</span>. Every pixel's real temperature is
+          recovered by running that recipe on its DN. The check looks at the DN itself, before
+          conversion: <span class="rng">DN in [7500, 65535]</span>.
+          <ul>
+            <li>The <strong>lower bound, 7,500,</strong> converts to −123.15&nbsp;°C — far below
+              anything that can ever happen at Balaton, so it isn't a realistic thermometer limit;
+              it's a wide net for catching one specific broken value, <strong>DN&nbsp;=&nbsp;0</strong>,
+              MODIS's own &quot;nothing was written here&quot; placeholder (which converts to
+              −273.15&nbsp;°C, absolute zero, if left uncaught).</li>
+            <li>The <strong>upper bound, 65,535,</strong> is simply the largest number a 16-bit DN
+              can ever be — this half of the check never actually rejects anything real.</li>
+            <li><strong>This does <em>not</em> reject 0&nbsp;°C</strong> — a completely ordinary
+              winter-night reading at Balaton, converting to DN&nbsp;≈&nbsp;13,657, nowhere near the
+              rejected DN&nbsp;=&nbsp;0. The fill value and 0&nbsp;°C are two different numbers on
+              two different scales (DN vs. °C) that just happen to both involve the digit
+              &quot;0&quot; in casual conversation; only the DN-scale one is rejected.</li>
+          </ul></li>
         <li><strong>Overpass time present and sane.</strong> <span class="rng">view time in [0, 240]</span>
           — this field is the pixel's own local solar time of observation, stored as hour-of-day ×10
           (so 0–240 means 0.0–24.0&nbsp;h). Its own fill value is 255, which this check catches; it's
@@ -720,7 +734,26 @@
           (the readout number, no clear-sky bias) is added back.
           <em>Result:</em> the same within-lake pattern as the plain composite, but the overall
           level now matches the headline number to ~0.05&nbsp;°C &mdash; far below the product's own
-          ~1&ndash;2&nbsp;°C accuracy.</li>
+          ~1&ndash;2&nbsp;°C accuracy.
+          <div class="ex"><b>Worked example</b>Say July had 20 qualifying days: 15 warm, clear days
+            averaging <strong>24&nbsp;°C</strong> across the lake, and 5 cooler, partly-cloudy days
+            averaging <strong>20&nbsp;°C</strong>. <strong>The readout figure</strong> is the
+            day-weighted average of those daily lake-averages: (15×24&nbsp;+&nbsp;5×20)/20&nbsp;=
+            <strong>23&nbsp;°C</strong>. Now picture one shore pixel that genuinely runs about
+            1&nbsp;°C above the lake average every day it's seen — but, because cloudier days keep
+            fewer pixels, it was only visible on 2 of the 5 cool days. <strong>The naive
+            approach</strong> — average that pixel's raw readings over whichever days it happened to
+            be visible — tilts toward the warm days it saw more often:
+            (15×25&nbsp;+&nbsp;2×21)/17&nbsp;≈&nbsp;<strong>24.4&nbsp;°C</strong>, almost a full
+            degree above what the pixel actually does relative to the lake (it should read
+            24&nbsp;°C on a 23&nbsp;°C month, i.e. +1&nbsp;°C). <strong>The correction avoids this
+            exactly:</strong> each day the pixel's offset from that day's own lake average is
+            computed first (+1&nbsp;°C every day it's seen, no matter which days those are), the
+            offsets are averaged (+1&nbsp;°C), and the true monthly figure (23&nbsp;°C, the same
+            number in the readout) is added back — 23&nbsp;+&nbsp;1&nbsp;=&nbsp;
+            <strong>24&nbsp;°C</strong>, undistorted by which days happened to be cloud-free.
+            <strong>Blank pixels</strong> on the map are simply ones never seen on any qualifying
+            day that month — no offset to average, so nothing is drawn.</div></li>
         <li>Once a month's or year's data is fetched, browsing inside it is instant — only the map's
           satellite image still needs a fresh request per day, since that's genuinely a new picture
           each time.</li>
@@ -737,11 +770,37 @@
         <li>The four passes are shown <strong>in the order they happen</strong> — Aqua pre-dawn
           (~03:00 Hungarian time, the <em>first</em> reading of the date, not the last), Terra
           ~11:00, Aqua ~14:00, Terra ~21:30. Times are the mean measured overpass times over the
-          lake; the old labels were rounded and off by up to ~1.5&nbsp;h. <strong>The Weather
-          panel now shows the correct season's clock window for whichever date is on
-          screen</strong> (CET in winter is exactly one hour earlier than CEST in summer),
-          computed from the EU's standard summer-time switch dates, instead of one blended
-          year-round estimate.</li>
+          lake; the old labels were rounded and off by up to ~1.5&nbsp;h. <strong>Every
+          clock-time display &mdash; the Weather panel header and the &quot;Satellite
+          pass&quot; dropdown itself &mdash; now shows only the one season's window that
+          actually applies to whichever date is on screen, printed right next to the pass
+          name</strong> (e.g. the dropdown reads &quot;Terra morning&nbsp;&nbsp;~09:30–10:30
+          Hungarian time (winter)&quot;), with the season spelled out explicitly rather than
+          left for the reader to infer from the two different windows. Computed from the
+          EU's standard summer-time switch dates (CET in winter is exactly one hour earlier
+          than CEST in summer), instead of one blended year-round estimate or both seasons
+          shown side by side. (The whole-month view has no single day to check, so the 15th
+          of the selected month stands in as the representative date.) Getting the clock
+          text <em>inside</em> the dropdown itself took three attempts: mutating the
+          dropdown's existing item list in place (twice) left it showing &quot;select
+          value&quot; until clicked twice &mdash; an Earth Engine UI quirk with restoring a
+          Select's value right after resetting its items. The working approach instead
+          <strong>rebuilds the whole dropdown widget from scratch</strong> on every date
+          change (the same pattern as the very first, always-worked version of this control,
+          where the value is simply correct from construction rather than &quot;restored&quot;
+          afterwards). <strong>The pass name is now the same short name everywhere it
+          appears</strong> &mdash; the dropdown, the readout, the pass table and the charts
+          all say &quot;Terra morning&quot; / &quot;Aqua afternoon&quot; / etc. identically;
+          an earlier, slightly different wording (&quot;Terra — mid-morning&quot;) only used
+          in the dropdown was dropped for consistency.</li>
+        <li>The single-day pixel map is now <strong>drawn only when there is an actual
+          accepted reading</strong> for that exact pass and date — it used to be drawn
+          whenever <em>any</em> MODIS scene existed for that pass that day, a weaker
+          condition: a scene can exist and still have every pixel rejected by
+          <span class="mono">QA-002</span>, in which case the readout correctly said &quot;No
+          reading for this day&quot; while the map, checked separately, could still show
+          pixels. The map now waits for, and is gated on, the exact same precomputed reading
+          the readout text uses, so the two always agree.</li>
         <li>A <strong>&quot;Weather&quot; panel</strong> (single-day view) shows the ERA5-Land
           reanalysis conditions for the selected pass — air temperature and wind at the overpass
           hour, plus the day's sunshine and rain. It is context for <em>why</em> a reading was
