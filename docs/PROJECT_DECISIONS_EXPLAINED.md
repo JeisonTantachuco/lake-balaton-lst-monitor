@@ -677,9 +677,12 @@ seven passed, and `VAL-001` was **approved in September 2026**.
   together at **99 % correlation**. A weather model (ERA5-Land) tracks it too. (Landsat and
   ERA5-Land were used here only as measuring sticks — they are not part of the product;
   that would be `DATA-005` / `DATA-006` below.)
-- **The flagged anomalies match the official record.** Every standout the product found —
-  February 2024, March 2024, summer 2024, 2024 as the warmest year — lines up with the
-  Copernicus Climate Change Service's European climate bulletins.
+- **The flagged anomalies match the official record.** Every standout the product found
+  lines up with the official Copernicus Climate Change Service (C3S) bulletins for the
+  same period: [February 2024](https://climate.copernicus.eu/warmest-february-record-9th-consecutive-warmest-month),
+  [March 2024](https://climate.copernicus.eu/march-2024-10th-consecutive-record-warm-month-globally),
+  [summer 2024](https://climate.copernicus.eu/copernicus-summer-2024-hottest-record-globally-and-europe),
+  and [2024 as the warmest year](https://climate.copernicus.eu/esotc-2024-your-guide-europes-changing-climate).
 - **The result doesn't depend on arbitrary choices.** Re-running with a ±3 or ±7-day
   window instead of ±5, or a stricter pixel filter, or a trimmed shoreline, moves the
   anomaly by only a fraction of a degree.
