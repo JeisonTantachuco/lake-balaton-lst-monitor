@@ -51,18 +51,18 @@ var STREAMS = {
                 clockWinter: '~01:30–02:30 Hungarian time (winter)',
                 col: 'MODIS/061/MYD11A1', lst: 'LST_Night_1km', qc: 'QC_Night',
                 time: 'Night_view_time', angle: 'Night_view_angle', utcHour: 1},
-  terra_day:   {short: 'Terra morning', clock: '~10:30–11:30 Hungarian time (summer)',
-                clockWinter: '~09:30–10:30 Hungarian time (winter)',
+  terra_day:   {short: 'Terra morning', clock: '~11:30–12:30 Hungarian time (summer)',
+                clockWinter: '~10:30–11:30 Hungarian time (winter)',
                 col: 'MODIS/061/MOD11A1', lst: 'LST_Day_1km',   qc: 'QC_Day',
-                time: 'Day_view_time',   angle: 'Day_view_angle', utcHour: 9},
+                time: 'Day_view_time',   angle: 'Day_view_angle', utcHour: 10},
   aqua_day:    {short: 'Aqua afternoon', clock: '~13:30–14:30 Hungarian time (summer)',
                 clockWinter: '~12:30–13:30 Hungarian time (winter)',
                 col: 'MODIS/061/MYD11A1', lst: 'LST_Day_1km',   qc: 'QC_Day',
                 time: 'Day_view_time',   angle: 'Day_view_angle', utcHour: 12},
-  terra_night: {short: 'Terra evening', clock: '~21:00–22:00 Hungarian time (summer)',
-                clockWinter: '~20:00–21:00 Hungarian time (winter)',
+  terra_night: {short: 'Terra evening', clock: '~22:30–23:30 Hungarian time (summer)',
+                clockWinter: '~21:30–22:30 Hungarian time (winter)',
                 col: 'MODIS/061/MOD11A1', lst: 'LST_Night_1km', qc: 'QC_Night',
-                time: 'Night_view_time', angle: 'Night_view_angle', utcHour: 20}
+                time: 'Night_view_time', angle: 'Night_view_angle', utcHour: 21}
 };
 var STREAM_ORDER = ['aqua_night', 'terra_day', 'aqua_day', 'terra_night'];
 
@@ -153,10 +153,11 @@ function percentileText(pct) {
 /* ----------------------------------------------- candidate quality pixel map */
 
 /**
- * The same clear-sky pixel-acceptance rule the anomaly engine uses, applied to one
- * daily MODIS image so the map can show which pixels went into that day's average.
+ * The same clear-sky pixel-acceptance rule the anomaly engine uses, as a reusable mask —
+ * shared by the pixel map (`acceptedLstC`) and the actual-overpass-time readout
+ * (`drawDailyMap`'s view-time reduction), so both agree on exactly which pixels count.
  */
-function acceptedLstC(image, s) {
+function qaMask(image, s) {
   var raw = image.select(s.lst);
   var qc  = image.select(s.qc);
   var vt  = image.select(s.time);
@@ -167,15 +168,22 @@ function acceptedLstC(image, s) {
   var emisError   = qc.rightShift(4).bitwiseAnd(3);
   var lstError    = qc.rightShift(6).bitwiseAnd(3);
 
-  var ok = raw.gte(7500).and(raw.lte(65535))
+  return raw.gte(7500).and(raw.lte(65535))
     .and(vt.gte(0)).and(vt.lte(240))
     .and(va.gte(0)).and(va.lte(130))
     .and(mandatory.lte(1))
     .and(dataQuality.eq(0))
     .and(emisError.lte(1))
     .and(lstError.lte(1));
+}
 
-  return raw.multiply(0.02).subtract(273.15).updateMask(ok).rename('lst_c');
+/**
+ * The accepted-pixel LST image for one daily MODIS scene, so the map can show which
+ * pixels went into that day's average.
+ */
+function acceptedLstC(image, s) {
+  var raw = image.select(s.lst);
+  return raw.multiply(0.02).subtract(273.15).updateMask(qaMask(image, s)).rename('lst_c');
 }
 
 /* ---------------------------------------------------------------- UI layout */
@@ -266,6 +274,12 @@ panel.add(ui.Label('Satellite pass', {fontWeight: 'bold', margin: '8px 0 2px 0'}
 var streamSelectPanel = ui.Panel();
 streamSelectPanel.add(streamSelect);
 panel.add(streamSelectPanel);
+// The real, measured overpass time for the selected day/pass (filled by
+// `fillOverpassPanel`, daily view only) — kept right next to the pass picker itself,
+// not buried further down the page, since it is a direct comment on the clock window
+// shown just above it.
+var overpassPanel = ui.Panel({style: {margin: '1px 0 4px 0'}});
+panel.add(overpassPanel);
 // Two earlier attempts put the clock text inside the dropdown by mutating its existing
 // items in place (`streamSelect.items().reset(...)`) — both left the dropdown showing
 // "select value" until clicked twice, an apparent Earth Engine UI quirk with mutating a
@@ -317,6 +331,22 @@ var monthPickItems = [];
     }
   }
 })();
+
+// A faster way into the day slider than dragging through 3+ years of days — jumps
+// straight to the 1st of the chosen month, reusing the same month list built above.
+// This control's own selection is never read back anywhere — it only ever writes to
+// the date slider — so there is no shared-state risk like the "Satellite pass" picker
+// had.
+var dateJumpSelect = ui.Select({
+  items: monthPickItems, placeholder: 'Jump to a month…', style: {stretch: 'horizontal'}
+});
+dateJumpSelect.onChange(function (ym) {
+  dateSlider.setValue(ym + '-01', false);
+  refresh();
+});
+dateGroup.add(ui.Label('Jump to a month', {fontSize: '12px', color: '#888', margin: '4px 0 1px 0'}));
+dateGroup.add(dateJumpSelect);
+
 var monthYearSelect = ui.Select({
   items: monthPickItems,
   value: monthPickItems[monthPickItems.length - 1].value,   // most recent month with data
@@ -349,17 +379,17 @@ panel.add(monthlyChartPanel);
 panel.add(ui.Label('About this tool', {fontWeight: 'bold', fontSize: '14px', margin: '12px 0 2px 0'}));
 panel.add(ui.Label(
   'Lake-surface temperature from NASA MODIS (Terra + Aqua, 1 km). Each of the four daily passes '
-  + '(Aqua ~03:00, Terra ~11:00, Aqua ~14:00, Terra ~21:00 Hungarian time) is averaged over the '
+  + '(Aqua ~03:00, Terra ~11:30, Aqua ~14:00, Terra ~22:00 Hungarian time) is averaged over the '
   + 'clear-sky lake pixels and compared to its own 2003–2022 history for the same time of year '
   + '(±5-day window). The passes are never merged. Heavy cloud = no reading.',
   {fontSize: '12px', color: '#888', margin: '0'}));
 panel.add(ui.Label(
-  'Validated: over 2003–2024, our monthly average for a given month sits within ~0.5 °C of what '
-  + 'Landsat (a different satellite) measured for the same month, and every warm spell the tool '
-  + 'flags (Feb 2024, summer 2024, 2024 overall…) matches the Copernicus Climate Change Service’s '
-  + 'published European climate bulletins. Reliable for spotting unusual readings, not calibrated '
-  + 'to the exact degree. The "Weather" panel is ERA5-Land reanalysis — context, never a '
-  + 'measurement of the water.',
+  'Validated: over 2003–2024, our monthly average sits within ~0.5 °C of Landsat’s (a different '
+  + 'satellite) reading for the same month on average, and the lake’s standout months (Feb 2024, '
+  + 'summer 2024, 2024 as the warmest year) line up with the official Copernicus Climate Change '
+  + 'Service bulletins for those periods — see the project’s methodology write-up for the exact '
+  + 'comparison and sources. Reliable for spotting unusual readings, not calibrated to the exact '
+  + 'degree. The "Weather" panel is ERA5-Land reanalysis — context, never a measurement of the water.',
   {fontSize: '12px', color: '#888', margin: '4px 0 0 0'}));
 
 /* ------------------------------------------------------- readout components */
@@ -534,6 +564,7 @@ function updateDaily() {
   // an accepted reading at all.
   setPixelLayer(null);
   updateLegend(null);
+  overpassPanel.clear();
 
   dailyReadout.clear();
   dailyReadout.add(ui.Label('Loading…', {color: '#999', fontSize: '13px'}));
@@ -555,7 +586,7 @@ function updateDaily() {
     // whether *a* MODIS scene exists that day (which can be true even on a day this
     // pass's reading was rejected outright, and previously left a pixel map on screen
     // for a "No reading for this day" pass).
-    if (p) { drawDailyMap(streamId, dstr); } else { setPixelLayer(null); updateLegend(null); }
+    if (p) { drawDailyMap(streamId, dstr); } else { setPixelLayer(null); updateLegend(null); overpassPanel.clear(); }
   });
 
   // Weather is its own fetch (a different collection from the anomaly records) —
@@ -573,11 +604,82 @@ function drawDailyMap(streamId, dstr) {
   var start = ee.Date(dstr);
   var col = ee.ImageCollection(s.col).filterDate(start, start.advance(1, 'day'));
   col.size().evaluate(function (n) {
-    if (!n) { setPixelLayer(null); updateLegend(null); return; }
-    var lstC = acceptedLstC(ee.Image(col.first()), s).clip(LAKE_GEOM);
+    if (!n) { setPixelLayer(null); updateLegend(null); fillOverpassPanel(streamId, dstr, null); return; }
+    var image = ee.Image(col.first());
+    var lstC = acceptedLstC(image, s).clip(LAKE_GEOM);
     setPixelLayer(lstC, s.short + ' — ' + dstr);   // fixed LST_VIS colour scale
     computeLstRange(lstC, updateLegend);           // informational range only
+
+    // The actual overpass time for THIS day, from the image's own view-time band —
+    // Terra and Aqua have drifted in their orbits since 2003, so this can differ from
+    // the long-run nominal window shown elsewhere. The band itself is LOCAL SOLAR TIME
+    // (per the official MOD11A1 product documentation: GMT + longitude/15°), not UTC —
+    // it must be converted using the lake's own longitude (read live from LAKE_GEOM,
+    // never a hardcoded coordinate) before it means anything in UTC or Hungarian clock
+    // time. Averaged over the same accepted pixels as the map above.
+    var lakeLonDeg = ee.Number(LAKE_GEOM.centroid({maxError: 1000}).coordinates().get(0));
+    var vtUtcHours = image.select(s.time).multiply(0.1).subtract(lakeLonDeg.divide(15))
+      .add(24).mod(24)
+      .updateMask(qaMask(image, s)).rename('vt_h');
+    vtUtcHours.reduceRegion({
+      reducer: ee.Reducer.mean(), geometry: LAKE_GEOM, scale: 1000, maxPixels: 1e9, bestEffort: true
+    }).get('vt_h').evaluate(function (meanUtcHour) {
+      fillOverpassPanel(streamId, dstr, meanUtcHour === null ? null : meanUtcHour);
+    });
   });
+}
+
+// Converts a UTC decimal hour (e.g. 9.23) into a Hungarian local "HH:MM" clock string
+// for the given date, applying the same summer/winter offset as `passClockWindow`.
+function formatHungarianClock(utcHour, iso) {
+  var offset = isHungarianSummerTime(iso) ? 2 : 1;
+  var localHour = ((utcHour + offset) % 24 + 24) % 24;
+  var h = Math.floor(localHour);
+  var m = Math.round((localHour - h) * 60);
+  if (m === 60) { m = 0; h = (h + 1) % 24; }
+  return pad2(h) + ':' + pad2(m);
+}
+
+// The systematic-bias MECHANISM a drifted pass time can cause — described in words only,
+// no specific target clock time quoted (chasing an exact number here was a repeated
+// source of confusion; the real vs. nominal comparison above already shows the size and
+// direction for this specific day). Named only for the two passes where the direction is
+// actually established.
+function driftBiasNote(streamId) {
+  if (streamId === 'terra_day') {
+    return 'When this pass happens earlier than its own historical nominal window, it samples '
+      + 'the lake before as much of the day’s warming has occurred, which can read '
+      + 'systematically ‘too cool’ — a sensor-timing effect, not a real anomaly.';
+  }
+  if (streamId === 'aqua_day') {
+    return 'When this pass happens later than its own historical nominal window, it samples the '
+      + 'lake closer to the day’s peak heat, which can read systematically ‘too warm’ '
+      + '— a sensor-timing effect, not a real anomaly.';
+  }
+  return '';
+}
+
+function fillOverpassPanel(streamId, dstr, meanUtcHour) {
+  overpassPanel.clear();
+  if (meanUtcHour === null || meanUtcHour === undefined) { return; }
+  var actual = formatHungarianClock(meanUtcHour, dstr);
+  overpassPanel.add(ui.Label(
+    'MODIS’s own timestamp for this image: ~' + actual + ' Hungarian time',
+    {fontSize: '12px', fontWeight: 'bold', color: '#555', margin: '0'}));
+  overpassPanel.add(ui.Label(
+    'Averaged over the accepted pixels — compare to the long-run nominal window shown above ('
+    + passClockWindow(streamId, dstr) + '), itself measured from the 2003–2022 historical '
+    + 'record. Terra and Aqua have both drifted in their orbits since 2023, so a given day’s '
+    + 'real pass time can differ from that nominal window — both numbers are real, measured '
+    + 'values, so comparing them directly already tells the full story.',
+    {fontSize: '11px', color: '#888', margin: '1px 0 0 0'}));
+  var biasNote = driftBiasNote(streamId);
+  if (biasNote) {
+    overpassPanel.add(ui.Label(
+      biasNote + ' This is a known, described limitation — not yet corrected for, and its '
+      + 'exact size for Balaton has not yet been estimated.',
+      {fontSize: '11px', color: '#cc4c02', margin: '2px 0 0 0'}));
+  }
 }
 
 function fillDailyReadout(streamId, dstr, dayName, p) {
@@ -883,8 +985,8 @@ function drawSeriesChart(target, rows, title, highlightDate) {
   var hasHl = !!hlRow;
 
   var data = [hasHl
-    ? ['Date', 'Measured', 'Typical (2003–2022 median)', 'Selected day']
-    : ['Date', 'Measured', 'Typical (2003–2022 median)']];
+    ? ['Date', 'Measured', 'Typical (median)', 'Selected day']
+    : ['Date', 'Measured', 'Typical (median)']];
   rows.forEach(function (p) {
     var row = [p.date_utc, p.daily_lst_c, p.reference_median_lst_c];
     if (hasHl) { row.push(p.date_utc === highlightDate ? p.daily_lst_c : null); }
@@ -942,8 +1044,8 @@ function drawMonthlySeriesChart(target, rows, title, highlightMonth) {
   var hasHl = !!hlRow;
 
   var data = [hasHl
-    ? ['Month', 'Measured', 'Typical (2003–2022 median)', 'Selected month']
-    : ['Month', 'Measured', 'Typical (2003–2022 median)']];
+    ? ['Month', 'Measured', 'Typical (median)', 'Selected month']
+    : ['Month', 'Measured', 'Typical (median)']];
   rows.forEach(function (p) {
     var measured = (p.monthly_mean_lst_c === undefined) ? null : p.monthly_mean_lst_c;
     var typical = (measured !== null
@@ -1047,6 +1149,7 @@ function refresh() {
   dailyChartPanel.style().set('shown', isDaily);
   passTablePanel.style().set('shown', isDaily);
   weatherPanel.style().set('shown', isDaily);
+  overpassPanel.style().set('shown', isDaily);
   monthGroup.style().set('shown', !isDaily);
   monthlyReadout.style().set('shown', !isDaily);
   monthlyChartPanel.style().set('shown', !isDaily);

@@ -8,9 +8,9 @@ words, without needing to decode internal jargon.
 Every section below answers three questions: **what did we choose, what were the real
 alternatives, and why is our choice the correct one for what this project is trying to
 do.** Where a choice is formally recorded, I give its code (e.g. `METH-002`) in
-parentheses so you can look up the full, formal wording in `DECISIONS.md` if you ever
-need the paper trail — but you should never need to read that file to understand the
-reasoning. This document is the reasoning.
+parentheses — the internal decision register behind that code is available on request,
+but you should never need it to understand the reasoning. This document is the
+reasoning.
 
 A short glossary is at the very end if any statistics term is unfamiliar.
 
@@ -45,9 +45,13 @@ the order they fall on a date:
 | Pass | Roughly | Note |
 |---|---|---|
 | Aqua — pre-dawn | ~03:00 | taken in the small hours *of* that date, so it is the **first** of the four, not the last |
-| Terra — mid-morning | ~11:00 | |
+| Terra — mid-morning | ~11:30 | |
 | Aqua — early afternoon | ~14:00 | usually the warmest |
-| Terra — evening | ~21:30 | |
+| Terra — evening | ~22:00 | |
+
+(These "roughly" figures are deliberately rounded single numbers for a quick read; the
+app itself shows the precise, separately winter/summer windows measured from the real
+2003–2022 record — see Section 10.)
 
 **Why these two satellites, and why keep them separate:** they're the only sensors that
 give a long, consistent, multi-times-daily record of the lake's actual surface temperature
@@ -547,7 +551,69 @@ feedback while testing it:
 - **A calendar-style date picker**, not a slider showing raw numbers, because that's a far
   more natural way to jump to a specific day — with the underlying recalculation
   deliberately **debounced** so quickly scrubbing through many days triggers one
-  calculation at the end, not one per day passed over.
+  calculation at the end, not one per day passed over. A **"Jump to a month"** dropdown
+  sits beside it — dragging the slider across three-plus years of individual days is
+  slow, so this jumps straight to the 1st of a chosen month in one step.
+- **The actual overpass time for the selected day is shown, right next to the "Satellite
+  pass" picker itself** (not buried lower on the page), read directly from that day's own
+  MODIS image (the `view_time` band, lake-averaged over the same accepted pixels as the
+  map) and labelled explicitly as MODIS's own timestamp, alongside the long-run nominal
+  window shown in the picker above it. Terra and Aqua have drifted somewhat in their
+  orbits since 2023 — their overpass times are not perfectly fixed across the record —
+  so a given day's real pass time can differ from the nominal window. It does not
+  correct anything — the baseline and anomaly calculations are unchanged — it is a
+  transparency addition: **both the nominal window and the day's actual reading are now
+  real, independently measured numbers, so comparing them directly already tells the
+  whole story** for how much a given day has drifted. **For the two daytime passes
+  where the direction is actually documented** (Terra's morning pass creeping earlier,
+  Aqua's afternoon pass creeping later — see Section 1), the panel also names, in words
+  only and with no specific clock time attached, the systematic bias this can cause: a
+  pass landing earlier in the morning samples the lake before as much of the day's
+  warming has happened (systematic "too cool"); a pass landing later in the afternoon
+  samples it closer to peak heat (systematic "too warm") — a known, described
+  limitation, explicitly **not yet corrected for or sized**. (An earlier version of this
+  note also tried to name a likely future *destination* clock time for the drift,
+  borrowed from NASA's general orbit-tracking figures — see the validation below for
+  why that specific number was dropped while the mechanism itself was kept.)
+  - **A real unit-conversion bug was caught and fixed here while testing.** MODIS's
+    `view_time` band is documented (the official product user guide) as *local solar
+    time* — `GMT + longitude/15°` — not UTC. The first version of this feature read the
+    band and treated its value as UTC directly before converting to Hungarian clock
+    time, double-counting Balaton's longitude offset (~+1.2 h) and showing times roughly
+    1–2 hours later than reality. Fixed by subtracting the lake's own longitude ÷ 15
+    (read live from the lake boundary geometry already in use, never a hardcoded
+    coordinate) before converting to UTC, then to Hungarian clock time.
+  - **The nominal windows themselves were then validated against the real historical
+    record — and two of the four needed correcting.** The question "is `09:30–10:30`
+    for Terra morning actually confirmed by real historical timestamps?" was asked
+    directly, so it was checked the same way the live app checks a day's own reading:
+    every accepted January/February image from 2003–2022 for each of the four streams,
+    lake-averaged, longitude- and DST-corrected. Result — **Aqua's two nominal windows
+    were already accurate** (computed ≈12:48/13:48 winter/summer for the afternoon pass
+    against a stored 12:30–13:30/13:30–14:30, and ≈01:59/02:59 against a stored
+    01:30–02:30/02:30–03:30 — both comfortably inside their stored windows). **Terra's
+    two nominal windows were measurably wrong** — computed ≈10:57/11:57 for the morning
+    pass against a stored 09:30–10:30/10:30–11:30 (over an hour off), and ≈21:43/22:43
+    for the evening pass against a stored 20:00–21:00/21:00–22:00. Corrected to
+    `~10:30–11:30` / `~11:30–12:30` (morning) and `~21:30–22:30` / `~22:30–23:30`
+    (evening); the ERA5-Land weather-matching hour (`utcHour`) was corrected the same
+    way (9→10, 20→21) since it was derived from the same wrong figures. 2003–2022 is
+    also notably **stable** for both satellites (varying by only ~10 minutes across 19
+    years) — the real, fast drift is a 2023-onward phenomenon, matching NASA's own
+    maintenance-maneuver history (Terra's last inclination adjustment was Feb 2020).
+  - **Why the specific "likely destination" clock time was dropped, while the bias
+    mechanism above was kept.** NASA's published drift figures (10:30→09:00 for Terra,
+    13:30→15:50 for Aqua, both in *local solar time*, the equator-crossing convention)
+    describe behaviour at the equator, not at Balaton's latitude (~46.8°N) — and the
+    validation above shows Balaton's own historical crossing times don't equal NASA's
+    nominal equator figures either (Terra's real historical average is ~11:00 local
+    solar time, not NASA's 10:30). Translating NASA's general satellite-wide figure into
+    a specific Hungarian-clock "destination" for this one lake was consistently a source
+    of confusion and required attempted fix after fix without ever being fully reliable,
+    so that specific number is gone. With the nominal window now correctly measured and
+    the day's own reading shown right beside it, the reader can already see *how much* a
+    given day has drifted without the app needing to also guess *where it's eventually
+    heading*.
 - **The whole-month view uses its own Month selector**, separate from the daily
   calendar, because every day inside one month gives the *same* monthly summary — there
   was no reason to force a day-level choice onto a month-level question.
@@ -608,9 +674,9 @@ feedback while testing it:
   sit near the cold end, the warm end, or the pale middle of the full range) — but the
   colors themselves are never renormalized.
 - **All internal decision codes (`METH-006`, `QA-002`, etc.) were deliberately stripped
-  from the user-facing app text** — they're useful for this document and for `DECISIONS.md`,
-  but meaningless to anyone opening the public app, so the app instead explains things in
-  the same plain language used throughout this document.
+  from the user-facing app text** — they're useful for this document and the internal
+  decision register, but meaningless to anyone opening the public app, so the app
+  instead explains things in the same plain language used throughout this document.
 - **The classification label always appears with its percentile next to it**, and the
   four-pass table shows, for every pass, what share of the lake that pass actually saw —
   both added after validation (Section 11) so a reading near a threshold, or one built
@@ -764,9 +830,9 @@ Being upfront about what this project does *not* yet claim:
 
 ## 13. Where the formal paper trail lives
 
-Every decision above has a fuller, formally-worded twin entry in `DECISIONS.md` at the
-repository root, identified by the code shown in parentheses throughout this document
-(e.g. `METH-002`, `QA-002`, `ARCH-001`). That file is the authoritative, dated,
-approval-tracked register — the version a supervisor or examiner would want to audit.
-This document is the same set of decisions, explained so *you* can confidently explain
-them yourself, in your own words, to anyone who asks.
+Every decision above has a fuller, formally-worded twin entry in an internal decision
+register, identified by the code shown in parentheses throughout this document (e.g.
+`METH-002`, `QA-002`, `ARCH-001`) — a dated, approval-tracked record kept alongside the
+project's working files, available on request. This document is the same set of
+decisions, explained so *you* can confidently explain them yourself, in your own words,
+to anyone who asks.
