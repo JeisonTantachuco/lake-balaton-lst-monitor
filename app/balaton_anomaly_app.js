@@ -186,6 +186,63 @@ function acceptedLstC(image, s) {
   return raw.multiply(0.02).subtract(273.15).updateMask(qaMask(image, s)).rename('lst_c');
 }
 
+/* -------------------------------------------------- per-pixel anomaly map (experimental) */
+
+// Same ±5-day window and 2003-2022 baseline as the approved lake-wide method (METH-001),
+// computed live per pixel instead of precomputed as one lake-wide number. Built from real
+// per-year calendar dates (not Earth Engine's native dayOfYear filter) so leap years never
+// misalign the window by a day — 29 Feb folds onto 28 Feb in a non-leap year, matching the
+// existing engine's fold_day_of_year rule.
+var BASELINE_FIRST_YEAR = 2003;
+var BASELINE_LAST_YEAR = 2022;
+var ANOMALY_WINDOW_HALF_WIDTH_DAYS = 5;
+var ANOMALY_MIN_HISTORICAL_N = 10;   // METH-003's existing minimum-sample guardrail, reused per pixel
+
+function isLeapYear(y) { return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0; }
+
+function historicalWindowFilter(targetIso) {
+  var mm = Number(targetIso.slice(5, 7)), dd = Number(targetIso.slice(8, 10));
+  var filters = [];
+  for (var y = BASELINE_FIRST_YEAR; y <= BASELINE_LAST_YEAR; y++) {
+    var day = dd;
+    if (mm === 2 && dd === 29 && !isLeapYear(y)) { day = 28; }
+    var ref = new Date(Date.UTC(y, mm - 1, day));
+    var start = new Date(ref); start.setUTCDate(start.getUTCDate() - ANOMALY_WINDOW_HALF_WIDTH_DAYS);
+    var end = new Date(ref); end.setUTCDate(end.getUTCDate() + ANOMALY_WINDOW_HALF_WIDTH_DAYS + 1);
+    filters.push(ee.Filter.date(isoOf(start), isoOf(end)));
+  }
+  return ee.Filter.or.apply(null, filters);
+}
+
+// Per-pixel historical median + observation count for one stream, over the ±5-day/20-year
+// window around `targetIso` — the "normal" map, built live (no precomputed asset), the same
+// way the monthly bias-corrected map already reduces a filtered collection on the fly.
+function pixelClimatology(streamId, targetIso) {
+  var s = STREAMS[streamId];
+  var col = ee.ImageCollection(s.col).filter(historicalWindowFilter(targetIso));
+  var maskedCol = col.map(function (img) { return acceptedLstC(img, s); });
+  var median = maskedCol.reduce(ee.Reducer.median()).rename('hist_median');
+  var nObs = maskedCol.map(function (img) { return img.mask(); }).reduce(ee.Reducer.sum()).rename('n_obs');
+  return median.addBands(nObs);
+}
+
+// Today's reading minus that SAME PIXEL's own historical normal — not minus the single
+// lake-wide normal, because different parts of the lake have genuinely different normal
+// temperatures (shallow vs. deep water), so a lake-wide reference would misread ordinary
+// geography as a false anomaly. A pixel is only drawn when BOTH today's own QA-002 check
+// passes AND that pixel has at least `ANOMALY_MIN_HISTORICAL_N` historical observations —
+// otherwise blank, same "never guess" principle as the rest of this product (QA-001).
+function pixelAnomaly(image, streamId, targetIso) {
+  var s = STREAMS[streamId];
+  var todayLstC = acceptedLstC(image, s);
+  var clim = pixelClimatology(streamId, targetIso);
+  var histOk = clim.select('n_obs').gte(ANOMALY_MIN_HISTORICAL_N);
+  return todayLstC.subtract(clim.select('hist_median')).updateMask(histOk).rename('anomaly_c');
+}
+
+var ANOMALY_VIS = {min: -6, max: 6,
+                   palette: ['#2166ac', '#67a9cf', '#d1e5f0', '#f7f7f7', '#fddbc7', '#ef8a62', '#b2182b']};
+
 /* ---------------------------------------------------------------- UI layout */
 
 ui.root.clear();
@@ -298,6 +355,24 @@ function rebuildStreamSelect(iso) {
   streamSelectPanel.add(fresh);
   streamSelect = fresh;
 }
+
+// Single-day map mode: plain temperature (the original map), or the new experimental
+// per-pixel anomaly map (today's reading minus that same pixel's own 2003-2022 normal).
+// "Experimental" in the label because this is new, not yet reviewed the way the rest of
+// the product's methodology has been.
+var mapModeSelect = ui.Select({
+  items: [{label: 'Temperature', value: 'temp'}, {label: 'Anomaly (experimental)', value: 'anomaly'}],
+  value: 'temp', style: {stretch: 'horizontal'}
+});
+var mapModeLabel = ui.Label('Map shows', {fontWeight: 'bold', margin: '8px 0 2px 0'});
+panel.add(mapModeLabel);
+panel.add(mapModeSelect);
+mapModeSelect.onChange(refresh);
+// Filled only in anomaly mode: the three coverage numbers needed to explain a blank pixel
+// (today's own cloud cover vs. that pixel's own historical data being too thin), plus the
+// map's own colour-scale legend text.
+var anomalyCoveragePanel = ui.Panel({style: {margin: '1px 0 4px 0'}});
+panel.add(anomalyCoveragePanel);
 
 // Single-day view: a date field that opens a month/year calendar when clicked
 // (drag the handle underneath for quick day-by-day scrubbing).
@@ -586,7 +661,7 @@ function updateDaily() {
     // whether *a* MODIS scene exists that day (which can be true even on a day this
     // pass's reading was rejected outright, and previously left a pixel map on screen
     // for a "No reading for this day" pass).
-    if (p) { drawDailyMap(streamId, dstr); } else { setPixelLayer(null); updateLegend(null); overpassPanel.clear(); }
+    if (p) { drawDailyMap(streamId, dstr, p); } else { setPixelLayer(null); updateLegend(null); overpassPanel.clear(); }
   });
 
   // Weather is its own fetch (a different collection from the anomaly records) —
@@ -599,16 +674,27 @@ function updateDaily() {
   }
 }
 
-function drawDailyMap(streamId, dstr) {
+function drawDailyMap(streamId, dstr, p) {
   var s = STREAMS[streamId];
   var start = ee.Date(dstr);
   var col = ee.ImageCollection(s.col).filterDate(start, start.advance(1, 'day'));
+  var mode = mapModeSelect.getValue();
   col.size().evaluate(function (n) {
-    if (!n) { setPixelLayer(null); updateLegend(null); fillOverpassPanel(streamId, dstr, null); return; }
+    if (!n) {
+      setPixelLayer(null); updateLegend(null); fillOverpassPanel(streamId, dstr, null);
+      anomalyCoveragePanel.clear();
+      return;
+    }
     var image = ee.Image(col.first());
-    var lstC = acceptedLstC(image, s).clip(LAKE_GEOM);
-    setPixelLayer(lstC, s.short + ' — ' + dstr);   // fixed LST_VIS colour scale
-    computeLstRange(lstC, updateLegend);           // informational range only
+
+    if (mode === 'anomaly') {
+      drawAnomalyMap(image, streamId, dstr, p);
+    } else {
+      anomalyCoveragePanel.clear();
+      var lstC = acceptedLstC(image, s).clip(LAKE_GEOM);
+      setPixelLayer(lstC, s.short + ' — ' + dstr);   // fixed LST_VIS colour scale
+      computeLstRange(lstC, updateLegend);           // informational range only
+    }
 
     // The actual overpass time for THIS day, from the image's own view-time band —
     // Terra and Aqua have drifted in their orbits since 2003, so this can differ from
@@ -627,6 +713,57 @@ function drawDailyMap(streamId, dstr) {
       fillOverpassPanel(streamId, dstr, meanUtcHour === null ? null : meanUtcHour);
     });
   });
+}
+
+// Draws the experimental per-pixel anomaly layer and its coverage caption. The ordinary
+// temperature legend doesn't apply here (different scale, different meaning), so it's
+// cleared; the anomaly colour scale is explained in the coverage panel's text instead.
+//
+// Coverage is deliberately computed via `count()` on properly masked numeric bands, never
+// `mean()` on a derived boolean image — an earlier version did the latter and silently
+// produced impossible numbers (a "coverage fraction" of exactly 1.0, with a pixel SUM
+// greater than the pixel COUNT behind it — a sign `reduceRegion`'s scale/bestEffort
+// resampling was interpolating the 0/1 mask image rather than sampling it directly).
+// "Today's own coverage" reuses the already-correct, already-displayed
+// `p.valid_water_fraction` from the precomputed daily record instead of recomputing it.
+function drawAnomalyMap(image, streamId, dstr, p) {
+  var s = STREAMS[streamId];
+  var anomaly = pixelAnomaly(image, streamId, dstr).clip(LAKE_GEOM).rename('anomaly_ok');
+  setPixelLayer(anomaly, s.short + ' — ' + dstr + ' anomaly vs 2003–2022', ANOMALY_VIS);
+  updateLegend(null);
+
+  var nObs = pixelClimatology(streamId, dstr).select('n_obs');
+  var histOk = nObs.updateMask(nObs.gte(ANOMALY_MIN_HISTORICAL_N)).rename('hist_ok');
+  var combo = ee.Image.cat([nObs.rename('lake_total'), histOk, anomaly]);
+  combo.reduceRegion({
+    reducer: ee.Reducer.count(), geometry: LAKE_GEOM, scale: 1000, maxPixels: 1e9, bestEffort: true
+  }).evaluate(function (counts) { fillAnomalyCoveragePanel(counts, p); });
+}
+
+function fillAnomalyCoveragePanel(counts, p) {
+  anomalyCoveragePanel.clear();
+  if (!counts || !counts.lake_total) { return; }
+  var total = counts.lake_total;
+  var todayPct = Math.round((p.valid_water_fraction || 0) * 100);
+  var histPct = Math.round(((counts.hist_ok || 0) / total) * 100);
+  var bothPct = Math.round(((counts.anomaly_ok || 0) / total) * 100);
+  anomalyCoveragePanel.add(ui.Label('Anomaly map coverage: ~' + bothPct + '% of the lake',
+    {fontSize: '12px', fontWeight: 'bold', color: '#555', margin: '0'}));
+  anomalyCoveragePanel.add(ui.Label(
+    'Needs both: today’s own clear-sky reading (' + todayPct + '% of the lake today, the exact '
+    + 'figure used elsewhere on this page) AND a reliable historical normal for that exact '
+    + 'pixel (~' + histPct + '% of the lake has at least ' + ANOMALY_MIN_HISTORICAL_N
+    + ' historical readings for this time of year). A blank pixel can be missing for either '
+    + 'reason, or both, and there is no way to tell which from the map alone. The ~ figures '
+    + 'are approximate, computed live at whatever grid resolution Earth Engine happens to '
+    + 'pick for this specific view — the same approximation already used for other live map '
+    + 'statistics in this app, not a new source of imprecision.',
+    {fontSize: '11px', color: '#888', margin: '1px 0 0 0'}));
+  anomalyCoveragePanel.add(ui.Label(
+    'Colour: blue = colder than that pixel’s own 2003–2022 normal, red = warmer, pale '
+    + '= close to normal (scale: ±' + ANOMALY_VIS.max + ' °C). Experimental — '
+    + 'computed live, not yet independently reviewed the way the rest of this product has been.',
+    {fontSize: '11px', color: '#cc4c02', margin: '2px 0 0 0'}));
 }
 
 // Converts a UTC decimal hour (e.g. 9.23) into a Hungarian local "HH:MM" clock string
@@ -1150,6 +1287,9 @@ function refresh() {
   passTablePanel.style().set('shown', isDaily);
   weatherPanel.style().set('shown', isDaily);
   overpassPanel.style().set('shown', isDaily);
+  mapModeLabel.style().set('shown', isDaily);
+  mapModeSelect.style().set('shown', isDaily);
+  anomalyCoveragePanel.style().set('shown', isDaily);
   monthGroup.style().set('shown', !isDaily);
   monthlyReadout.style().set('shown', !isDaily);
   monthlyChartPanel.style().set('shown', !isDaily);
