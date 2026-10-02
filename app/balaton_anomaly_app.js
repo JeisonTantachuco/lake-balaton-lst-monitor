@@ -242,20 +242,26 @@ function pixelAnomaly(image, streamId, clim) {
   return todayLstC.subtract(clim.select('hist_median')).updateMask(histOk).rename('anomaly_c');
 }
 
-// Range checked against real per-pixel anomaly values across several seasons/streams,
-// not guessed: most days stay within about -5..+5 degC, but the lake's single most
-// significant known event (18 Feb 2024, the anchor of "2024 was the warmest year on
-// record") reaches +7.1 degC (Terra morning, p99) and +8.5 degC (Aqua pre-dawn, p99) at
-// the pixel level — wider than the lake-wide average figure quoted elsewhere, since a
-// single pixel can run more extreme than the whole-lake mean. +-6 would have clipped
-// exactly the case most worth looking at closely, so the scale is fixed at +-9 instead,
-// with a little headroom beyond the largest value seen so far. Deliberately NOT a
-// seasonal scale (checked and rejected): the most extreme anomalies in this sample are
-// a WINTER event, so narrowing the scale for winter would clip the most important case
-// even harder. A season-dependent scale makes sense for raw temperature (a fixed
-// -5..32 degC range looks washed out within any one season) but not for anomaly, which
-// is already normalised to each day's own seasonal baseline by construction.
-var ANOMALY_VIS = {min: -9, max: 9,
+// Range checked against the real anomaly record, not guessed: across the full 2023+
+// monitoring record (~900 readings per stream), the 5th-95th percentile of lake-wide
+// anomalies is roughly -5..+5 degC for most streams. +-9 (an earlier choice, sized to
+// never clip even the single most extreme known event, 18 Feb 2024) left almost every
+// ORDINARY day crammed into the pale middle third of the scale, hard to tell apart --
+// exactly the problem being fixed here. Narrowed to +-6, which comfortably covers the
+// 95th-99th percentile for most streams: typical days now use the full colour range,
+// and the rare truly extreme day (Feb 2024 included) simply shows as fully saturated
+// red/blue instead of its own unique shade -- standard practice for a long-tailed
+// distribution, and itself meaningful ("at or beyond the extreme end"), not a flaw.
+// Deliberately NOT a seasonal scale (checked and rejected): winter nights do have a
+// measurably wider COLD tail than summer (5th percentile -8.4 degC vs -2.4 degC for
+// Aqua pre-dawn), but the WARM side barely differs by season -- the effect is
+// asymmetric and stream-specific, not a clean "narrower in one season" story, and a
+// seasonal scale would make the same anomaly value look more or less dramatic purely
+// because of when it happened, undermining the point of an anomaly map. A seasonal
+// scale remains reasonable for the raw TEMPERATURE map (a fixed -5..32 degC range
+// looks washed out within any one season) but not for anomaly, which is already
+// normalised to each day's own seasonal baseline by construction.
+var ANOMALY_VIS = {min: -6, max: 6,
                    palette: ['#2166ac', '#67a9cf', '#d1e5f0', '#f7f7f7', '#fddbc7', '#ef8a62', '#b2182b']};
 
 /* ---------------------------------------------------------------- UI layout */
@@ -1301,8 +1307,11 @@ function updateLegend(range) {
 function showAnomalyLegend() {
   legendTitle.setValue('Anomaly vs. 2003–2022 normal (°C)');
   legendBar.setImage(legendRampImage(ANOMALY_VIS.min, ANOMALY_VIS.max, ANOMALY_VIS));
-  legendMinLabel.setValue(signed(ANOMALY_VIS.min) + '°');
-  legendMaxLabel.setValue(signed(ANOMALY_VIS.max) + '°');
+  // "<=" / ">=" rather than a bare number — values beyond the scale are real (e.g. the
+  // 18 Feb 2024 event), they just show at the same full colour as the endpoint itself
+  // rather than a further, uniquely extreme shade.
+  legendMinLabel.setValue('≤' + signed(ANOMALY_VIS.min) + '°');
+  legendMaxLabel.setValue('≥' + signed(ANOMALY_VIS.max) + '°');
   legendCaption.setValue('blue = colder than normal, red = warmer, pale = near normal');
 }
 
