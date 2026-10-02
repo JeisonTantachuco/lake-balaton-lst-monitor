@@ -232,10 +232,12 @@ function pixelClimatology(streamId, targetIso) {
 // geography as a false anomaly. A pixel is only drawn when BOTH today's own QA-002 check
 // passes AND that pixel has at least `ANOMALY_MIN_HISTORICAL_N` historical observations —
 // otherwise blank, same "never guess" principle as the rest of this product (QA-001).
-function pixelAnomaly(image, streamId, targetIso) {
+// Takes the climatology already built by the caller — this is the expensive ~220-image
+// reduction, and it must only be built once per map draw, not once for the map layer and
+// again for the coverage numbers (that duplication was the main cause of slow rendering).
+function pixelAnomaly(image, streamId, clim) {
   var s = STREAMS[streamId];
   var todayLstC = acceptedLstC(image, s);
-  var clim = pixelClimatology(streamId, targetIso);
   var histOk = clim.select('n_obs').gte(ANOMALY_MIN_HISTORICAL_N);
   return todayLstC.subtract(clim.select('hist_median')).updateMask(histOk).rename('anomaly_c');
 }
@@ -728,11 +730,12 @@ function drawDailyMap(streamId, dstr, p) {
 // `p.valid_water_fraction` from the precomputed daily record instead of recomputing it.
 function drawAnomalyMap(image, streamId, dstr, p) {
   var s = STREAMS[streamId];
-  var anomaly = pixelAnomaly(image, streamId, dstr).clip(LAKE_GEOM).rename('anomaly_ok');
+  var clim = pixelClimatology(streamId, dstr);   // the expensive part — built exactly once
+  var anomaly = pixelAnomaly(image, streamId, clim).clip(LAKE_GEOM).rename('anomaly_ok');
   setPixelLayer(anomaly, s.short + ' — ' + dstr + ' anomaly vs 2003–2022', ANOMALY_VIS);
   updateLegend(null);
 
-  var nObs = pixelClimatology(streamId, dstr).select('n_obs');
+  var nObs = clim.select('n_obs');
   var histOk = nObs.updateMask(nObs.gte(ANOMALY_MIN_HISTORICAL_N)).rename('hist_ok');
   var combo = ee.Image.cat([nObs.rename('lake_total'), histOk, anomaly]);
   combo.reduceRegion({
