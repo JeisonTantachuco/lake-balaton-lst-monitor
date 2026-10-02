@@ -34,34 +34,18 @@ a guide to using the app itself is in
 
 ```
 app/    the Earth Engine App source (balaton_anomaly_app.js) — what runs at the live URL
-tools/  the Python data pipeline: builds the historical baseline, computes daily/monthly
-        anomaly records, and the independent validation checks
 docs/   the methods and validation report, and the user guide
 ```
 
-## How the pipeline works
+## How the data behind the app is produced
 
-1. **Baseline** — `tools/run_anomaly_engine_ee.py --build-climatology` computes one
-   lake-average temperature per day for every day 2003–2022 (one line of code calling
-   Earth Engine, not a download), for each of the four satellite passes, then derives a
-   ±5-day-window historical baseline (median, mean, and full sample) for every calendar
-   day.
-2. **Monitoring** — `--daily-records` computes each new day's reading against that
-   baseline (anomaly, percentile, confidence label) and rolls them up into monthly
-   summaries. This is run by hand roughly monthly to extend the record; it does not run
-   automatically.
-3. **Export** — `--export-assets` publishes the baseline and the monitoring records as
-   Earth Engine table assets, which the app reads directly — the app itself never
-   recomputes history, so it stays fast.
-4. **Validation** — `tools/run_validation_offline.py` and `tools/run_validation_ee.py`
-   independently check the method: physical plausibility, cross-stream consistency,
-   agreement with an independent satellite instrument (Landsat) and a reanalysis model,
-   corroboration against published European climate bulletins, and robustness to
-   reasonable method variations (window width, stricter cloud filtering, shoreline
-   treatment).
-
-Every script supports `--self-test` (no Earth Engine, no network) to check its own logic
-before running against live data.
+The historical baseline (2003–2022) and the ongoing monitoring record (2023–present) are
+computed once in Google Earth Engine and published as Earth Engine table assets, which
+the app reads directly — the app itself never recomputes history, so it stays fast. The
+monitoring record is extended by a manual refresh, not a live/automatic process. The full
+methodology — how the baseline is built, the pixel quality rule, how an anomaly becomes a
+percentile and a label, and the independent validation checks — is described in
+[`docs/METHODS_AND_VALIDATION_REPORT.docx`](docs/METHODS_AND_VALIDATION_REPORT.docx).
 
 ## Data sources
 

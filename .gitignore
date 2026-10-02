@@ -44,3 +44,6 @@ Thumbs.db
 /docs/PROJECT_DECISIONS_EXPLAINED.md
 /docs/THE_BALATON_METHOD.html
 /docs/CLOUD_EDGE_AND_FOG_ARTIFACTS_NOTE.md
+
+# Python data pipeline — stays on disk, not pushed.
+/tools/
