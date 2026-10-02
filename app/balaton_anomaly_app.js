@@ -242,7 +242,20 @@ function pixelAnomaly(image, streamId, clim) {
   return todayLstC.subtract(clim.select('hist_median')).updateMask(histOk).rename('anomaly_c');
 }
 
-var ANOMALY_VIS = {min: -6, max: 6,
+// Range checked against real per-pixel anomaly values across several seasons/streams,
+// not guessed: most days stay within about -5..+5 degC, but the lake's single most
+// significant known event (18 Feb 2024, the anchor of "2024 was the warmest year on
+// record") reaches +7.1 degC (Terra morning, p99) and +8.5 degC (Aqua pre-dawn, p99) at
+// the pixel level — wider than the lake-wide average figure quoted elsewhere, since a
+// single pixel can run more extreme than the whole-lake mean. +-6 would have clipped
+// exactly the case most worth looking at closely, so the scale is fixed at +-9 instead,
+// with a little headroom beyond the largest value seen so far. Deliberately NOT a
+// seasonal scale (checked and rejected): the most extreme anomalies in this sample are
+// a WINTER event, so narrowing the scale for winter would clip the most important case
+// even harder. A season-dependent scale makes sense for raw temperature (a fixed
+// -5..32 degC range looks washed out within any one season) but not for anomaly, which
+// is already normalised to each day's own seasonal baseline by construction.
+var ANOMALY_VIS = {min: -9, max: 9,
                    palette: ['#2166ac', '#67a9cf', '#d1e5f0', '#f7f7f7', '#fddbc7', '#ef8a62', '#b2182b']};
 
 /* ---------------------------------------------------------------- UI layout */
