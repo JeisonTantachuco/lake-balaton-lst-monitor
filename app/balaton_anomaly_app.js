@@ -743,7 +743,16 @@ function drawDailyMap(streamId, dstr, p) {
 // greater than the pixel COUNT behind it — a sign `reduceRegion`'s scale/bestEffort
 // resampling was interpolating the 0/1 mask image rather than sampling it directly).
 // "Today's own coverage" reuses the already-correct, already-displayed
-// `p.valid_water_fraction` from the precomputed daily record instead of recomputing it.
+// `p.valid_water_fraction` figure rather than recomputing it live — recomputing it was
+// tried and was the wrong fix: the live `reduceRegion` (bestEffort, mixing a single scene's
+// native-projection mask with an ImageCollection-reduced band) does not sample the exact
+// same grid as the precomputed daily record, and produced its own, slightly inflated
+// estimate (e.g. "100%" on a day the precise figure elsewhere on the page says 99%/687px).
+// That precise figure is authoritative; the live grid used for the historical/combined
+// counts below is only an approximation, so "both" is explicitly clamped to never display
+// above the authoritative "today" ceiling — a true intersection can never exceed either of
+// its own ingredients, so a live estimate that implies otherwise is the approximation
+// talking, not a real result worth showing.
 function drawAnomalyMap(image, streamId, dstr, p) {
   var s = STREAMS[streamId];
   var clim = pixelClimatology(streamId, dstr);   // the expensive part — built exactly once
@@ -765,7 +774,13 @@ function fillAnomalyCoveragePanel(counts, p) {
   var total = counts.lake_total;
   var todayPct = Math.round((p.valid_water_fraction || 0) * 100);
   var histPct = Math.round(((counts.hist_ok || 0) / total) * 100);
-  var bothPct = Math.round(((counts.anomaly_ok || 0) / total) * 100);
+  // Clamped: this live count is an independent, approximate sample of a different grid
+  // than the precise `todayPct` above, so it can occasionally — wrongly — imply slightly
+  // more combined coverage than today's own true ceiling allows. A true intersection
+  // cannot exceed either ingredient; when the approximation says otherwise, the precise
+  // figure wins and this is capped at it rather than shown as a number known to be too high.
+  var bothPctRaw = Math.round(((counts.anomaly_ok || 0) / total) * 100);
+  var bothPct = Math.min(bothPctRaw, todayPct, histPct);
   anomalyCoveragePanel.add(ui.Label('Anomaly map coverage: ~' + bothPct + '% of the lake',
     {fontSize: '12px', fontWeight: 'bold', color: '#555', margin: '0'}));
   anomalyCoveragePanel.add(ui.Label(
@@ -776,7 +791,8 @@ function fillAnomalyCoveragePanel(counts, p) {
     + 'reason, or both, and there is no way to tell which from the map alone. The ~ figures '
     + 'are approximate, computed live at whatever grid resolution Earth Engine happens to '
     + 'pick for this specific view — the same approximation already used for other live map '
-    + 'statistics in this app, not a new source of imprecision.',
+    + 'statistics in this app, not a new source of imprecision; "both" is capped so it can '
+    + 'never display above either ingredient on its own, which a true intersection never can.',
     {fontSize: '11px', color: '#888', margin: '1px 0 0 0'}));
   anomalyCoveragePanel.add(ui.Label(
     'This map is new, and computed live — not yet independently reviewed the way the rest '
@@ -1305,7 +1321,7 @@ function updateLegend(range) {
 // whole point, so narrowing the bar to what's on screen would hide where "normal"
 // sits.
 function showAnomalyLegend() {
-  legendTitle.setValue('Anomaly vs. 2003–2022 normal (°C)');
+  legendTitle.setValue('Today vs. 2003–2022 normal (°C)');
   legendBar.setImage(legendRampImage(ANOMALY_VIS.min, ANOMALY_VIS.max, ANOMALY_VIS));
   // "<=" / ">=" rather than a bare number — values beyond the scale are real (e.g. the
   // 18 Feb 2024 event), they just show at the same full colour as the endpoint itself
