@@ -186,7 +186,7 @@ function acceptedLstC(image, s) {
   return raw.multiply(0.02).subtract(273.15).updateMask(qaMask(image, s)).rename('lst_c');
 }
 
-/* -------------------------------------------------- per-pixel anomaly map (experimental) */
+/* ------------------------------------------------------------ per-pixel anomaly map */
 
 // Same ±5-day window and 2003-2022 baseline as the approved lake-wide method (METH-001),
 // computed live per pixel instead of precomputed as one lake-wide number. Built from real
@@ -358,12 +358,10 @@ function rebuildStreamSelect(iso) {
   streamSelect = fresh;
 }
 
-// Single-day map mode: plain temperature (the original map), or the new experimental
-// per-pixel anomaly map (today's reading minus that same pixel's own 2003-2022 normal).
-// "Experimental" in the label because this is new, not yet reviewed the way the rest of
-// the product's methodology has been.
+// Single-day map mode: plain temperature (the original map), or the new per-pixel
+// anomaly map (today's reading minus that same pixel's own 2003-2022 normal).
 var mapModeSelect = ui.Select({
-  items: [{label: 'Temperature', value: 'temp'}, {label: 'Anomaly (experimental)', value: 'anomaly'}],
+  items: [{label: 'Temperature', value: 'temp'}, {label: 'Anomaly', value: 'anomaly'}],
   value: 'temp', style: {stretch: 'horizontal'}
 });
 var mapModeLabel = ui.Label('Map shows', {fontWeight: 'bold', margin: '8px 0 2px 0'});
@@ -717,9 +715,8 @@ function drawDailyMap(streamId, dstr, p) {
   });
 }
 
-// Draws the experimental per-pixel anomaly layer and its coverage caption. The ordinary
-// temperature legend doesn't apply here (different scale, different meaning), so it's
-// cleared; the anomaly colour scale is explained in the coverage panel's text instead.
+// Draws the per-pixel anomaly layer, its own diverging legend (`showAnomalyLegend`,
+// separate from the temperature legend), and the coverage caption below it.
 //
 // Coverage is deliberately computed via `count()` on properly masked numeric bands, never
 // `mean()` on a derived boolean image — an earlier version did the latter and silently
@@ -733,7 +730,7 @@ function drawAnomalyMap(image, streamId, dstr, p) {
   var clim = pixelClimatology(streamId, dstr);   // the expensive part — built exactly once
   var anomaly = pixelAnomaly(image, streamId, clim).clip(LAKE_GEOM).rename('anomaly_ok');
   setPixelLayer(anomaly, s.short + ' — ' + dstr + ' anomaly vs 2003–2022', ANOMALY_VIS);
-  updateLegend(null);
+  showAnomalyLegend();
 
   var nObs = clim.select('n_obs');
   var histOk = nObs.updateMask(nObs.gte(ANOMALY_MIN_HISTORICAL_N)).rename('hist_ok');
@@ -763,9 +760,8 @@ function fillAnomalyCoveragePanel(counts, p) {
     + 'statistics in this app, not a new source of imprecision.',
     {fontSize: '11px', color: '#888', margin: '1px 0 0 0'}));
   anomalyCoveragePanel.add(ui.Label(
-    'Colour: blue = colder than that pixel’s own 2003–2022 normal, red = warmer, pale '
-    + '= close to normal (scale: ±' + ANOMALY_VIS.max + ' °C). Experimental — '
-    + 'computed live, not yet independently reviewed the way the rest of this product has been.',
+    'This map is new, and computed live — not yet independently reviewed the way the rest '
+    + 'of this product has been.',
     {fontSize: '11px', color: '#cc4c02', margin: '2px 0 0 0'}));
 }
 
@@ -1230,15 +1226,16 @@ function drawMonthlySeriesChart(target, rows, title, highlightMonth) {
 
 /* ------------------------------------------------------------------- legend */
 
-// Builds the legend bar image for the window [lo, hi] °C, but always colours it
-// using the FIXED -5..32 stretch (LST_VIS.min/max) — so the bar shows exactly the
-// slice of the true colour ramp that this window occupies, not a rescaled copy of
-// the whole ramp. A view of 5-10 °C, for instance, sits near the pale middle of
-// the -5..32 ramp, so its legend bar should look pale, not fully blue-to-red.
-function legendRampImage(lo, hi) {
+// Builds the legend bar image for the window [lo, hi] °C, coloured using the FIXED
+// stretch of whichever `vis` object is passed (LST_VIS or ANOMALY_VIS) — so the bar
+// shows exactly the slice of the true colour ramp that this window occupies, not a
+// rescaled copy of the whole ramp. A view of 5-10 °C, for instance, sits near the
+// pale middle of the -5..32 temperature ramp, so its legend bar should look pale,
+// not fully blue-to-red.
+function legendRampImage(lo, hi, vis) {
   return ee.Image.pixelLonLat().select('longitude')
     .multiply((hi - lo) / 100).add(lo)
-    .visualize({min: LST_VIS.min, max: LST_VIS.max, palette: LST_VIS.palette});
+    .visualize({min: vis.min, max: vis.max, palette: vis.palette});
 }
 
 // A fixed pixel width shared by the bar and every row under it, so a long caption
@@ -1248,10 +1245,11 @@ function legendRampImage(lo, hi) {
 var LEGEND_WIDTH = '160px';
 
 var legend = ui.Panel({style: {position: 'bottom-left', padding: '7px 9px', width: '182px'}});
-legend.add(ui.Label('Lake-surface temperature (°C)',
-  {fontWeight: 'bold', fontSize: '12px', margin: '0 0 3px 0'}));
+var legendTitle = ui.Label('Lake-surface temperature (°C)',
+  {fontWeight: 'bold', fontSize: '12px', margin: '0 0 3px 0'});
+legend.add(legendTitle);
 var legendBar = ui.Thumbnail({
-  image: legendRampImage(LST_VIS.min, LST_VIS.max),
+  image: legendRampImage(LST_VIS.min, LST_VIS.max, LST_VIS),
   params: {bbox: [0, 0, 100, 8], dimensions: '160x14'},
   style: {margin: '0', padding: '0', width: LEGEND_WIDTH, height: '14px'}
 });
@@ -1263,20 +1261,36 @@ var scaleRow = ui.Panel({
 scaleRow.add(legendMinLabel);
 scaleRow.add(legendMaxLabel);
 legend.add(scaleRow);
-legend.add(ui.Label('this view\'s own range',
-  {fontSize: '11px', color: '#999', margin: '2px 0 0 0', width: LEGEND_WIDTH}));
+var legendCaption = ui.Label('this view\'s own range',
+  {fontSize: '11px', color: '#999', margin: '2px 0 0 0', width: LEGEND_WIDTH});
+legend.add(legendCaption);
 mapPanel.add(legend);
 
-// Called after every map layer redraw with that layer's actual min/max. The map
-// itself always uses the fixed LST_VIS colour stretch (untouched here); this only
-// re-crops the legend bar to the window that's actually on screen right now, and
-// relabels its endpoints to match — the bar's colours stay absolute throughout.
+// Called after every temperature-mode map layer redraw with that layer's actual
+// min/max. The map itself always uses the fixed LST_VIS colour stretch (untouched
+// here); this only re-crops the legend bar to the window that's actually on screen
+// right now, and relabels its endpoints to match — the bar's colours stay absolute
+// throughout.
 function updateLegend(range) {
+  legendTitle.setValue('Lake-surface temperature (°C)');
   var lo = range ? range.min : LST_VIS.min;
   var hi = range ? range.max : LST_VIS.max;
-  legendBar.setImage(legendRampImage(lo, hi));
+  legendBar.setImage(legendRampImage(lo, hi, LST_VIS));
   legendMinLabel.setValue(range ? fmt(lo) + '°' : '–');
   legendMaxLabel.setValue(range ? fmt(hi) + '°' : '–');
+  legendCaption.setValue('this view\'s own range');
+}
+
+// Anomaly mode's legend is always the full fixed diverging scale, never cropped to
+// the day's own range — unlike temperature, the centre (0 = normal) is itself the
+// whole point, so narrowing the bar to what's on screen would hide where "normal"
+// sits.
+function showAnomalyLegend() {
+  legendTitle.setValue('Anomaly vs. 2003–2022 normal (°C)');
+  legendBar.setImage(legendRampImage(ANOMALY_VIS.min, ANOMALY_VIS.max, ANOMALY_VIS));
+  legendMinLabel.setValue(signed(ANOMALY_VIS.min) + '°');
+  legendMaxLabel.setValue(signed(ANOMALY_VIS.max) + '°');
+  legendCaption.setValue('blue = colder than normal, red = warmer, pale = near normal');
 }
 
 /* --------------------------------------------------------------- wiring up */
