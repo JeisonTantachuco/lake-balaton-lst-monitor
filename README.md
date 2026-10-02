@@ -25,11 +25,10 @@ of year?**
   context for interpreting a reading — never as a replacement for the satellite
   measurement itself.
 
-The full reasoning behind every methodological choice — why this baseline period, why
-this cloud-quality threshold, why the passes are never merged, how an anomaly becomes a
-percentile — is written up in plain language in
-[`docs/PROJECT_DECISIONS_EXPLAINED.md`](docs/PROJECT_DECISIONS_EXPLAINED.md) (also
-published as a standalone page, see below).
+The full methodology, validation results and known limitations are in
+[`docs/METHODS_AND_VALIDATION_REPORT.docx`](docs/METHODS_AND_VALIDATION_REPORT.docx);
+a guide to using the app itself is in
+[`docs/USER_GUIDE.docx`](docs/USER_GUIDE.docx).
 
 ## Repository layout
 
@@ -37,7 +36,7 @@ published as a standalone page, see below).
 app/    the Earth Engine App source (balaton_anomaly_app.js) — what runs at the live URL
 tools/  the Python data pipeline: builds the historical baseline, computes daily/monthly
         anomaly records, and the independent validation checks
-docs/   methodology write-up and observational notes
+docs/   the methods and validation report, and the user guide
 ```
 
 ## How the pipeline works
@@ -75,8 +74,7 @@ before running against live data.
 Internship project, actively developed. Validated for **relative anomaly monitoring**
 (is this reading unusual?) — not for absolute, degree-precise calibration. Known
 limitations and open questions are documented in
-[`docs/PROJECT_DECISIONS_EXPLAINED.md`](docs/PROJECT_DECISIONS_EXPLAINED.md) and
-[`docs/CLOUD_EDGE_AND_FOG_ARTIFACTS_NOTE.md`](docs/CLOUD_EDGE_AND_FOG_ARTIFACTS_NOTE.md).
+[`docs/METHODS_AND_VALIDATION_REPORT.docx`](docs/METHODS_AND_VALIDATION_REPORT.docx).
 
 ## Author
 
