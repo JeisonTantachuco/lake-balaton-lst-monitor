@@ -26,7 +26,9 @@ var LAKE         = ee.FeatureCollection(ASSET_ROOT + 'lake_boundary');
 var CLIMATOLOGY  = ee.FeatureCollection(ASSET_ROOT + 'climatology_baseline');
 var DAILY        = ee.FeatureCollection(ASSET_ROOT + 'daily_anomaly_records');
 var MONTHLY      = ee.FeatureCollection(ASSET_ROOT + 'monthly_summaries');
-var LAKE_GEOM    = LAKE.geometry();
+// One MODIS pixel inward from the approved polygon (SPACE-002) — the same geometry the
+// published assets were computed on, so the map and the readouts agree.
+var LAKE_GEOM    = LAKE.geometry().buffer(-926.6254331387497, 50);
 
 var LAST_EXPORT_DATE = '2026-08-30';   // updated each time the monthly refresh runs
 var FIRST_YEAR = 2023;
