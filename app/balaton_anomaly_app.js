@@ -882,9 +882,9 @@ function fillDailyReadout(streamId, dstr, dayName, p) {
     {fontSize: '12px', color: '#666', margin: '0 0 5px 0'}));
 
   dailyReadout.add(kv('Lake surface', fmt(p.daily_lst_c) + ' °C'));
-  dailyReadout.add(kv('vs normal', signed(p.anomaly_vs_median_c) + ' °C   (median '
-    + fmt(p.reference_median_lst_c) + ' °C;  the mean gives ' + signed(p.anomaly_vs_mean_c) + ' °C)'));
-  dailyReadout.add(ui.Label('"normal" = the 2003–2022 record for ' + dayName + ' ± 5 days',
+  dailyReadout.add(kv('vs normal', signed(p.anomaly_vs_median_c) + ' °C'));
+  dailyReadout.add(ui.Label('Each pixel compared to its own 2003–2022 normal for '
+    + dayName + ' ± 5 days, then averaged over the lake — not one single lake-wide normal.',
     {fontSize: '11px', color: '#999', margin: '1px 0 4px 0'}));
   dailyReadout.add(kv('Clear-sky view',
     Math.round(p.valid_water_fraction * 100) + '% of the lake (' + p.accepted_pixel_count
@@ -1070,9 +1070,9 @@ function fillMonthlyReadout(streamId, monthName, p) {
     return;
   }
   monthlyReadout.add(kv('Average lake surface', fmt(p.monthly_mean_lst_c) + ' °C'));
-  monthlyReadout.add(kv('vs normal', signed(p.monthly_mean_anomaly_vs_median_c)
-    + ' °C   (median;  the mean gives ' + signed(p.monthly_mean_anomaly_vs_mean_c) + ' °C)'));
-  monthlyReadout.add(ui.Label('"normal" = the 2003–2022 median for this calendar month',
+  monthlyReadout.add(kv('vs normal', signed(p.monthly_mean_anomaly_vs_median_c) + ' °C'));
+  monthlyReadout.add(ui.Label('Mean of each day’s own pixel-first anomaly for this month '
+    + '— each pixel compared to its own 2003–2022 normal before averaging.',
     {fontSize: '11px', color: '#999', margin: '1px 0 4px 0'}));
   // Two different things: how many DAYS of the month had a reading (temporal),
   // and how much of the LAKE those readings covered on average (spatial).
@@ -1158,10 +1158,16 @@ function drawSeriesChart(target, rows, title, highlightDate) {
   var hasHl = !!hlRow;
 
   var data = [hasHl
-    ? ['Date', 'Measured', 'Typical (median)', 'Selected day']
-    : ['Date', 'Measured', 'Typical (median)']];
+    ? ['Date', 'Measured', 'Implied normal', 'Selected day']
+    : ['Date', 'Measured', 'Implied normal']];
   rows.forEach(function (p) {
-    var row = [p.date_utc, p.daily_lst_c, p.reference_median_lst_c];
+    // There is no single lake-wide "normal" to plot any more — each pixel has its own
+    // (METH-007). This line is measured minus that day's pixel-first anomaly, i.e. what
+    // the lake-wide reading would have been exactly at normal; a display convenience
+    // reconstructed from the two numbers already shown, not a separately stored value.
+    var implied = (p.daily_lst_c != null && p.anomaly_vs_median_c != null)
+      ? p.daily_lst_c - p.anomaly_vs_median_c : null;
+    var row = [p.date_utc, p.daily_lst_c, implied];
     if (hasHl) { row.push(p.date_utc === highlightDate ? p.daily_lst_c : null); }
     data.push(row);
   });
@@ -1192,10 +1198,12 @@ function drawSeriesChart(target, rows, title, highlightDate) {
   target.add(chart);
   target.add(ui.Label(
     'One point per day of the chosen month. Red dots: the measured lake-surface temperature '
-    + 'on days clear enough to see. Blue line: the typical value for that calendar day '
-    + '(2003–2022 median, from the ±5-day window around it). A gap means that day was too '
-    + 'cloudy for a reading. The vertical distance between a dot and the blue line is how far '
-    + 'that day was above or below normal — look for the dots furthest from the line.'
+    + 'on days clear enough to see. Blue line: what that reading would have been exactly at '
+    + 'normal — each pixel is compared with its own 2003–2022 normal first, then averaged, so '
+    + 'there is no single lake-wide normal to plot directly; this line is reconstructed from '
+    + 'the measured value and that day’s anomaly. A gap means that day was too cloudy for a '
+    + 'reading. The vertical distance between a dot and the blue line is that day’s anomaly — '
+    + 'look for the dots furthest from the line.'
     + (hasHl ? ' The yellow dot is the day shown above; click any red dot to jump to it.'
              : (clickable ? ' Click any red dot to jump to that day.' : '')),
     {fontSize: '12px', color: '#777', margin: '2px 0 8px 0'}));
@@ -1217,8 +1225,8 @@ function drawMonthlySeriesChart(target, rows, title, highlightMonth) {
   var hasHl = !!hlRow;
 
   var data = [hasHl
-    ? ['Month', 'Measured', 'Typical (median)', 'Selected month']
-    : ['Month', 'Measured', 'Typical (median)']];
+    ? ['Month', 'Measured', 'Implied normal', 'Selected month']
+    : ['Month', 'Measured', 'Implied normal']];
   rows.forEach(function (p) {
     var measured = (p.monthly_mean_lst_c === undefined) ? null : p.monthly_mean_lst_c;
     var typical = (measured !== null
