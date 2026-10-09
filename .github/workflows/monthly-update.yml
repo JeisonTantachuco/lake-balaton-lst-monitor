@@ -1,0 +1,41 @@
+name: Monthly data update
+
+# Keeps the published daily/monthly anomaly data current without a manual run.
+# Runs tools/monthly_update.py, which reads what is already published, computes
+# only the days added since then (per-pixel-first, METH-007), and re-exports the
+# merged whole. See tools/monthly_update.py for the full explanation.
+#
+# Requires one repository secret: EE_SERVICE_ACCOUNT_KEY, the JSON key for the
+# balaton-monthly-update@ee-jtantaroman.iam.gserviceaccount.com service account
+# (Settings -> Secrets and variables -> Actions -> New repository secret).
+
+on:
+  schedule:
+    # 06:00 UTC on the 2nd of every month -- a day's buffer past month-end so the
+    # previous day's MODIS scenes have had time to land in the collection.
+    - cron: '0 6 2 * *'
+  workflow_dispatch: {}  # manual "Run workflow" button, for testing or an off-cycle refresh
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install -r tools/requirements.txt
+
+      - name: Write service account key
+        run: echo "$EE_SERVICE_ACCOUNT_KEY" > "$RUNNER_TEMP/ee-key.json"
+        env:
+          EE_SERVICE_ACCOUNT_KEY: ${{ secrets.EE_SERVICE_ACCOUNT_KEY }}
+
+      - name: Run the incremental update
+        env:
+          EE_SERVICE_ACCOUNT_KEY_FILE: ${{ runner.temp }}/ee-key.json
+          EE_SERVICE_ACCOUNT_EMAIL: balaton-monthly-update@ee-jtantaroman.iam.gserviceaccount.com
+        run: python tools/monthly_update.py --project ee-jtantaroman
