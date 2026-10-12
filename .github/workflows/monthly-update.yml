@@ -11,9 +11,14 @@ name: Monthly data update
 
 on:
   schedule:
-    # 06:00 UTC on the 2nd of every month -- a day's buffer past month-end so the
-    # previous day's MODIS scenes have had time to land in the collection.
-    - cron: '0 6 2 * *'
+    # 06:00 UTC on the 7th of every month. Measured in this project: MODIS scenes can
+    # take 3+ days to clear NASA's processing and land in the collection, so running
+    # too early (the 2nd) risks the previous month still being short its last few
+    # days. The app itself trims an incomplete month from its picker either way
+    # (latestCompleteMonth in app/balaton_anomaly_app.js), so this date only affects
+    # how promptly a finished month actually appears, not whether an unfinished one
+    # could be shown.
+    - cron: '0 6 7 * *'
   workflow_dispatch: {}  # manual "Run workflow" button, for testing or an off-cycle refresh
 
 jobs:
