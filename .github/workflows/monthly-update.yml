@@ -21,6 +21,11 @@ on:
     - cron: '0 6 7 * *'
   workflow_dispatch: {}  # manual "Run workflow" button, for testing or an off-cycle refresh
 
+permissions:
+  contents: read
+  actions: write  # lets the job disable this same schedule if MODIS data goes stale
+                  # for good (tools/monthly_update.py, STAGNANT_DAYS_THRESHOLD)
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -43,4 +48,5 @@ jobs:
         env:
           EE_SERVICE_ACCOUNT_KEY_FILE: ${{ runner.temp }}/ee-key.json
           EE_SERVICE_ACCOUNT_EMAIL: balaton-monthly-update@ee-jtantaroman.iam.gserviceaccount.com
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # only used to self-disable if MODIS data goes stale
         run: python tools/monthly_update.py --project ee-jtantaroman

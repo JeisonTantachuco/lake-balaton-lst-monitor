@@ -23,8 +23,10 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import sys
 import time as time_mod
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +56,42 @@ def list_all_features(ee, asset_id):
         if not page_token:
             break
     return out
+
+
+# If MODIS genuinely stops producing new scenes (Terra: expected early 2027, Aqua:
+# expected autumn 2027, per the supervisor's review), this job would otherwise keep
+# running every month forever, finding nothing, for no reason. After this many days
+# with no new data on ANY stream, it disables its own schedule via the GitHub API and
+# logs why, rather than silently doing nothing indefinitely. A human re-enables it by
+# hand (Actions tab -> this workflow -> "..." -> Enable workflow) if that is ever
+# wanted again -- e.g. after adding VIIRS as a successor data source.
+STAGNANT_DAYS_THRESHOLD = 120
+
+
+def maybe_disable_if_stagnant(latest_date_iso, today_iso):
+    days = (dt.date.fromisoformat(today_iso) - dt.date.fromisoformat(latest_date_iso)).days
+    print(json.dumps({"days_since_latest_data": days, "stagnant_threshold_days": STAGNANT_DAYS_THRESHOLD}))
+    if days < STAGNANT_DAYS_THRESHOLD:
+        return
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo:
+        print(json.dumps({"STAGNANT_BUT_CANNOT_DISABLE":
+                           "no GITHUB_TOKEN/GITHUB_REPOSITORY in this environment "
+                           "(expected outside the scheduled CI run, e.g. a local test)"}))
+        return
+    url = "https://api.github.com/repos/%s/actions/workflows/monthly-update.yml/disable" % repo
+    req = urllib.request.Request(url, method="PUT", headers={
+        "Authorization": "Bearer %s" % token,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    })
+    try:
+        urllib.request.urlopen(req)
+        print(json.dumps({"SCHEDULE_DISABLED": True,
+                           "reason": "no new data for %d days (>= %d)" % (days, STAGNANT_DAYS_THRESHOLD)}))
+    except Exception as e:  # noqa: BLE001
+        print(json.dumps({"FAILED_TO_DISABLE_SCHEDULE": str(e)}))
 
 
 def doy_of(date_str):
@@ -173,6 +211,7 @@ def main():
 
     if not new_rows:
         print(json.dumps({"NOTHING_NEW": True}))
+        maybe_disable_if_stagnant(max(last_by_stream.values()), through)
         return 0
 
     all_rows = existing_rows + new_rows
