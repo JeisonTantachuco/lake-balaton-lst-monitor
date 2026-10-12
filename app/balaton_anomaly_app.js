@@ -599,7 +599,15 @@ var monthCache = {};   // 'YYYY-MM' -> {streamId: {byDate: {date: props}, list: 
 
 function loadMonth(ym, callback) {
   if (monthCache[ym]) { callback(monthCache[ym]); return; }
-  DAILY.filter(ee.Filter.stringStartsWith('date_utc', ym)).sort('date_utc')
+  // The month dropdowns never offer a month beyond LAST_EXPORT_DATE's boundary, but the
+  // date-slider's calendar popup is deliberately left free to scroll into any date up to
+  // today (see the comment where LAST_EXPORT_DATE is corrected, below) -- without this
+  // filter, manually scrolling into a not-yet-complete month would still pull back and
+  // display whatever of it had already landed in the published asset, which is exactly
+  // what this boundary is supposed to prevent everywhere, not just in the dropdowns.
+  DAILY.filter(ee.Filter.stringStartsWith('date_utc', ym))
+    .filter(ee.Filter.lte('date_utc', LAST_EXPORT_DATE))
+    .sort('date_utc')
     .evaluate(function (fc) {
       var byStream = {};
       STREAM_ORDER.forEach(function (id) { byStream[id] = {byDate: {}, list: []}; });
@@ -674,7 +682,13 @@ var yearCache = {};   // 'YYYY' -> {streamId: {byMonth: {'YYYY-MM': props}, list
 
 function loadYear(year, callback) {
   if (yearCache[year]) { callback(yearCache[year]); return; }
-  MONTHLY.filter(ee.Filter.stringStartsWith('month', year)).sort('month')
+  // Same reasoning as the filter in loadMonth: a month beyond LAST_EXPORT_DATE's
+  // boundary is never offered in the month dropdown, but without this filter its row
+  // would still be fetched and plotted as a real point on the monthly chart -- visible
+  // even though it cannot be directly selected, the same leak in a different panel.
+  MONTHLY.filter(ee.Filter.stringStartsWith('month', year))
+    .filter(ee.Filter.lte('month', LAST_EXPORT_DATE.slice(0, 7)))
+    .sort('month')
     .evaluate(function (fc) {
       var byStream = {};
       STREAM_ORDER.forEach(function (id) { byStream[id] = {byMonth: {}, list: []}; });
