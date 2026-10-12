@@ -1421,29 +1421,43 @@ monthYearSelect.onChange(refresh);
 
 /* --------------------------------------------------------- initial landing */
 
-// Open on the most recent day that actually has a Terra-morning reading, not on a
-// fixed calendar date. A fixed date can fall on a heavily clouded pass, and a
-// first-time visitor who lands on "No reading for this day" reasonably assumes the
-// app is broken or has no data. One small Earth Engine call at start-up finds the
-// latest day with data; if it fails, the slider keeps its LAST_EXPORT_DATE value.
-DAILY.filter(ee.Filter.eq('stream_id', 'terra_day'))
-  .sort('date_utc', false)
-  .limit(1)
-  .evaluate(function (fc) {
-    var feats = (fc && fc.features) || [];
-    if (feats.length && feats[0].properties && feats[0].properties.date_utc) {
-      LAST_EXPORT_DATE = feats[0].properties.date_utc;
-      dateSlider.setValue(LAST_EXPORT_DATE, false);
-      coverageLabel.setValue('Satellite coverage currently runs to ' + LAST_EXPORT_DATE
-        + '. Updated automatically, once a month.');
-      // The month pickers were built against today's date as a placeholder (always
-      // permissive, never wrong in the "too generous" direction) — now rebuilt against
-      // the true latest date, which trims away a month still only partly in.
-      monthPickItems = buildMonthPickItems(LAST_EXPORT_DATE);
-      buildDateJumpSelect();
-      buildMonthYearSelect();
-    } else {
-      coverageLabel.setValue('Could not check the latest available date.');
-    }
+// LAST_EXPORT_DATE is deliberately NOT "the latest row the data happens to contain" --
+// it is the last day of the latest COMPLETE month, exactly like the whole-month picker
+// (latestCompleteMonth, above). A day from a month still only partly in (e.g. 1-2
+// November, refreshed on 7 November before the rest of November exists) is not shown
+// in the single-day view either, not just left out of the month dropdown -- the data
+// for those days genuinely exists in the published asset, it is just not surfaced
+// until the rest of its month has arrived, so nothing shown has to change again later.
+DAILY.aggregate_max('date_utc').evaluate(function (rawLast) {
+  if (!rawLast) {
+    coverageLabel.setValue('Could not check the latest available date.');
     refresh();
-  });
+    return;
+  }
+  var completeMonth = latestCompleteMonth(rawLast);
+  var cy = Number(completeMonth.slice(0, 4)), cm = Number(completeMonth.slice(5, 7));
+  LAST_EXPORT_DATE = completeMonth + '-' + pad2(lastDayOfMonth(cy, cm));
+  coverageLabel.setValue('Satellite coverage currently runs to ' + LAST_EXPORT_DATE
+    + ' (the most recent complete month). Updated automatically, once a month.');
+  // The month pickers were built against today's date as a placeholder (always
+  // permissive, never wrong in the "too generous" direction) — now rebuilt against
+  // the true boundary above.
+  monthPickItems = buildMonthPickItems(LAST_EXPORT_DATE);
+  buildDateJumpSelect();
+  buildMonthYearSelect();
+  // Open on the most recent day within that boundary that actually has a Terra-morning
+  // reading, not a fixed calendar date — a boundary day can itself be cloudy, and a
+  // first-time visitor landing on "No reading for this day" reasonably assumes the app
+  // is broken rather than just unlucky.
+  DAILY.filter(ee.Filter.eq('stream_id', 'terra_day'))
+    .filter(ee.Filter.lte('date_utc', LAST_EXPORT_DATE))
+    .sort('date_utc', false)
+    .limit(1)
+    .evaluate(function (fc) {
+      var feats = (fc && fc.features) || [];
+      if (feats.length && feats[0].properties && feats[0].properties.date_utc) {
+        dateSlider.setValue(feats[0].properties.date_utc, false);
+      }
+      refresh();
+    });
+});
