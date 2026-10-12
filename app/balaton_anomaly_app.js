@@ -421,18 +421,35 @@ var anomalyCoveragePanel = ui.Panel({style: {margin: '1px 0 4px 0'}});
 panel.add(anomalyCoveragePanel);
 
 // Single-day view: a date field that opens a month/year calendar when clicked
-// (drag the handle underneath for quick day-by-day scrubbing).
-var dateSlider = ui.DateSlider({
-  start: FIRST_YEAR + '-01-01',
-  end: isoPlusDays(LAST_EXPORT_DATE, 1),
-  value: LAST_EXPORT_DATE,   // replaced on load by the most recent day that has a reading
-  period: 1,
-  style: {stretch: 'horizontal'}
-});
+// (drag the handle underneath for quick day-by-day scrubbing). Wrapped in its own
+// panel, like the other pickers above, so its ALLOWED RANGE (not just its selected
+// value) can be rebuilt once the true LAST_EXPORT_DATE is known — a ui.DateSlider's
+// start/end are fixed at construction, with no later setter, so narrowing the range
+// means building a fresh widget, the same technique already used for the month
+// pickers and `rebuildStreamSelect`. Earlier this only corrected the slider's
+// *value*, leaving its scrollable/clickable range permissive (today) forever — the
+// bar and calendar popup could still be dragged or clicked into a day with no data,
+// landing on "No reading", rather than that day being unreachable in the first place.
+var dateSliderPanel = ui.Panel();
+var dateSlider;
+function buildDateSlider(endIso, valueIso) {
+  var fresh = ui.DateSlider({
+    start: FIRST_YEAR + '-01-01',
+    end: isoPlusDays(endIso, 1),
+    value: valueIso,
+    period: 1,
+    style: {stretch: 'horizontal'}
+  });
+  fresh.onChange(ui.util.debounce(refresh, 450));
+  dateSliderPanel.clear();
+  dateSliderPanel.add(fresh);
+  dateSlider = fresh;
+}
+buildDateSlider(LAST_EXPORT_DATE, LAST_EXPORT_DATE);   // placeholder range; corrected below
 var dateGroup = ui.Panel();
 dateGroup.add(ui.Label('Date  —  click the date to open a calendar',
   {fontWeight: 'bold', margin: '8px 0 2px 0'}));
-dateGroup.add(dateSlider);
+dateGroup.add(dateSliderPanel);
 dateGroup.add(ui.Label(
   'The slider under the date steps one day at a time; use the calendar to jump further.',
   {fontSize: '12px', color: '#888', margin: '1px 0 0 0'}));
@@ -1469,9 +1486,12 @@ DAILY.aggregate_max('date_utc').evaluate(function (rawLast) {
     .limit(1)
     .evaluate(function (fc) {
       var feats = (fc && fc.features) || [];
-      if (feats.length && feats[0].properties && feats[0].properties.date_utc) {
-        dateSlider.setValue(feats[0].properties.date_utc, false);
-      }
+      var landing = (feats.length && feats[0].properties && feats[0].properties.date_utc)
+        || LAST_EXPORT_DATE;
+      // Rebuilds the slider's own range too (end = LAST_EXPORT_DATE + 1), not only its
+      // selected value — the widget itself must stop being scrollable/clickable past the
+      // boundary, not just default away from it.
+      buildDateSlider(LAST_EXPORT_DATE, landing);
       refresh();
     });
 });
