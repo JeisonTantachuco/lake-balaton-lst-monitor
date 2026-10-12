@@ -14,9 +14,11 @@
  *
  * The user-facing text is deliberately plain language — no internal decision codes.
  *
- * Known limitation of this version: it shows data only up to the last export
- * (LAST_EXPORT_DATE below). A later date shows "no reading yet" rather than
- * computing the value live.
+ * Known limitation of this version: it shows data only up to the last export, not a
+ * live computation. LAST_EXPORT_DATE is fetched from the data itself at startup
+ * (never hardcoded — a hardcoded value silently caps the app at whatever date the
+ * code was last edited, even once the data itself has moved on). The export runs
+ * automatically, once a month (.github/workflows/monthly-update.yml).
  */
 
 /* ------------------------------------------------------------------ constants */
@@ -30,7 +32,13 @@ var MONTHLY      = ee.FeatureCollection(ASSET_ROOT + 'monthly_summaries');
 // published assets were computed on, so the map and the readouts agree.
 var LAKE_GEOM    = LAKE.geometry().buffer(-926.6254331387497, 50);
 
-var LAST_EXPORT_DATE = '2026-08-30';   // updated each time the monthly refresh runs
+// Safe, permissive placeholder for widget ranges only (today's date can never be
+// later than the true last export, so nothing real is ever out of reach) -- corrected
+// to the true latest date, fetched from the data itself, at the bottom of this file.
+// A hardcoded date here was the bug: it silently capped the slider at whatever date
+// the code was last edited, even after the data itself (updated automatically, see
+// .github/workflows/monthly-update.yml) had moved well past it.
+var LAST_EXPORT_DATE = isoOf(new Date());
 var FIRST_YEAR = 2023;
 var LAST_YEAR  = 2026;
 
@@ -325,10 +333,10 @@ panel.add(ui.Label(
   + 'Aqua satellites, January 2023 onward, compared with the 2003–2022 record for the '
   + 'same time of year.',
   {fontSize: '13px', color: '#555', margin: '0 0 3px 0'}));
-panel.add(ui.Label(
-  'Satellite coverage currently runs to ' + LAST_EXPORT_DATE
-  + '. New months are added by hand, roughly monthly.',
-  {fontSize: '13px', color: '#888', margin: '0 0 8px 0'}));
+var coverageLabel = ui.Label(
+  'Checking the latest available date…',
+  {fontSize: '13px', color: '#888', margin: '0 0 8px 0'});
+panel.add(coverageLabel);
 
 /* -- controls -- */
 var modeSelect = ui.Select({
@@ -1381,7 +1389,12 @@ DAILY.filter(ee.Filter.eq('stream_id', 'terra_day'))
   .evaluate(function (fc) {
     var feats = (fc && fc.features) || [];
     if (feats.length && feats[0].properties && feats[0].properties.date_utc) {
-      dateSlider.setValue(feats[0].properties.date_utc, false);
+      LAST_EXPORT_DATE = feats[0].properties.date_utc;
+      dateSlider.setValue(LAST_EXPORT_DATE, false);
+      coverageLabel.setValue('Satellite coverage currently runs to ' + LAST_EXPORT_DATE
+        + '. Updated automatically, once a month.');
+    } else {
+      coverageLabel.setValue('Could not check the latest available date.');
     }
     refresh();
   });
