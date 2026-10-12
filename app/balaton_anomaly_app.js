@@ -141,6 +141,23 @@ function isoPlusDays(iso, k) {
   d.setUTCDate(d.getUTCDate() + k);
   return isoOf(d);
 }
+function lastDayOfMonth(year, month1to12) {
+  return new Date(Date.UTC(year, month1to12, 0)).getUTCDate();
+}
+// The latest calendar month that can be shown as a whole-month summary, given the
+// latest date the data actually reaches. A month only counts once the data reaches
+// ITS OWN last calendar day — not merely "the refresh ran" — so a part-way-in month
+// (e.g. data through 2 November) falls back to the prior month (October) instead of
+// showing a thin, not-yet-complete November that would later change underneath a
+// reader. If the data already reaches that month's own last day (e.g. through 31
+// October), that month is not trimmed away — it is genuinely whole.
+function latestCompleteMonth(iso) {
+  var y = Number(iso.slice(0, 4)), m = Number(iso.slice(5, 7)), d = Number(iso.slice(8, 10));
+  if (d === lastDayOfMonth(y, m)) { return iso.slice(0, 7); }
+  m -= 1;
+  if (m === 0) { m = 12; y -= 1; }
+  return y + '-' + pad2(m);
+}
 function ymLabel(ym) {
   var p = ym.split('-');
   return MONTH_NAMES[Number(p[1]) - 1] + ' ' + p[0];
@@ -424,41 +441,67 @@ panel.add(dateGroup);
 // Whole-month view: a plain Month dropdown. Every day inside one month gives the
 // same monthly summary, so there is no point re-picking a day for it — this is a
 // deliberately different, coarser control from the daily view's calendar above.
-var monthPickItems = [];
-(function () {
-  var last = LAST_EXPORT_DATE.slice(0, 7);
+// Only shows months through the latest COMPLETE month (latestCompleteMonth) — a
+// month that is only partly in yet is not offered as a whole-month summary, since
+// that summary would silently change again once the rest of the month arrives.
+function buildMonthPickItems(throughIso) {
+  var items = [];
+  var last = latestCompleteMonth(throughIso);
   for (var yy = FIRST_YEAR; yy <= LAST_YEAR; yy++) {
     for (var mm = 1; mm <= 12; mm++) {
       var ym = yy + '-' + pad2(mm);
       if (ym > last) { break; }
-      monthPickItems.push({label: MONTH_NAMES[mm - 1] + ' ' + yy, value: ym});
+      items.push({label: MONTH_NAMES[mm - 1] + ' ' + yy, value: ym});
     }
   }
-})();
+  return items;
+}
+var monthPickItems = buildMonthPickItems(LAST_EXPORT_DATE);   // placeholder; corrected below
+
+// Both pickers below are wrapped in their own dedicated panel so they can be rebuilt
+// wholesale once the true latest date is known, the same proven-safe technique
+// `rebuildStreamSelect` uses — mutating a live ui.Select's items in place left it
+// showing "select value" until clicked twice (see that function's own comment).
 
 // A faster way into the day slider than dragging through 3+ years of days — jumps
-// straight to the 1st of the chosen month, reusing the same month list built above.
-// This control's own selection is never read back anywhere — it only ever writes to
-// the date slider — so there is no shared-state risk like the "Satellite pass" picker
-// had.
-var dateJumpSelect = ui.Select({
-  items: monthPickItems, placeholder: 'Jump to a month…', style: {stretch: 'horizontal'}
-});
-dateJumpSelect.onChange(function (ym) {
-  dateSlider.setValue(ym + '-01', false);
-  refresh();
-});
+// straight to the 1st of the chosen month. This control's own selection is never
+// read back anywhere — it only ever writes to the date slider — so there is no
+// shared-state risk like the "Satellite pass" picker had.
+var dateJumpSelectPanel = ui.Panel();
+var dateJumpSelect;
+function buildDateJumpSelect() {
+  var fresh = ui.Select({
+    items: monthPickItems, placeholder: 'Jump to a month…', style: {stretch: 'horizontal'}
+  });
+  fresh.onChange(function (ym) {
+    dateSlider.setValue(ym + '-01', false);
+    refresh();
+  });
+  dateJumpSelectPanel.clear();
+  dateJumpSelectPanel.add(fresh);
+  dateJumpSelect = fresh;
+}
+buildDateJumpSelect();
 dateGroup.add(ui.Label('Jump to a month', {fontSize: '12px', color: '#888', margin: '4px 0 1px 0'}));
-dateGroup.add(dateJumpSelect);
+dateGroup.add(dateJumpSelectPanel);
 
-var monthYearSelect = ui.Select({
-  items: monthPickItems,
-  value: monthPickItems[monthPickItems.length - 1].value,   // most recent month with data
-  style: {stretch: 'horizontal'}
-});
+var monthYearSelectPanel = ui.Panel();
+var monthYearSelect;
+function buildMonthYearSelect(initialValue) {
+  var fresh = ui.Select({
+    items: monthPickItems,
+    value: initialValue || (monthPickItems.length ? monthPickItems[monthPickItems.length - 1].value : null),
+    style: {stretch: 'horizontal'}
+  });
+  fresh.onChange(refresh);
+  monthYearSelectPanel.clear();
+  monthYearSelectPanel.add(fresh);
+  monthYearSelect = fresh;
+}
+buildMonthYearSelect();
 var monthGroup = ui.Panel();
 monthGroup.add(ui.Label('Month', {fontWeight: 'bold', margin: '8px 0 2px 0'}));
-monthGroup.add(monthYearSelect);
+monthGroup.add(monthYearSelectPanel);
 panel.add(monthGroup);
 
 /* -- daily section -- */
@@ -1393,6 +1436,12 @@ DAILY.filter(ee.Filter.eq('stream_id', 'terra_day'))
       dateSlider.setValue(LAST_EXPORT_DATE, false);
       coverageLabel.setValue('Satellite coverage currently runs to ' + LAST_EXPORT_DATE
         + '. Updated automatically, once a month.');
+      // The month pickers were built against today's date as a placeholder (always
+      // permissive, never wrong in the "too generous" direction) — now rebuilt against
+      // the true latest date, which trims away a month still only partly in.
+      monthPickItems = buildMonthPickItems(LAST_EXPORT_DATE);
+      buildDateJumpSelect();
+      buildMonthYearSelect();
     } else {
       coverageLabel.setValue('Could not check the latest available date.');
     }
