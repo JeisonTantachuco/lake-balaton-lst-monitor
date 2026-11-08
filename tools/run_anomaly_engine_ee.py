@@ -362,8 +362,42 @@ def assemble_monthly(daily_records: list[dict[str, Any]]) -> list[dict[str, Any]
 
 # --- Earth Engine: one per-day lake value --------------------------------------
 
-def _per_day_feature(audit010: Any, runner: Any, ee: Any, image: Any, stream: dict[str, Any],
-                     geometry: Any, context: dict[str, Any]) -> Any:
+def region_class_image(ee: Any, regions_fc: Any) -> Any:
+    """SPACE-003: paint the 4 basin polygons (role == 'basin') into one integer raster
+    band (I=1, II=2, III=3, IV=4), so a single reduceRegion with a grouped reducer can
+    get all 4 basins' sums in one pass -- one Earth Engine 'aggregation' per image, the
+    same cost as the pre-SPACE-003 single-region code. reduceRegions (one call per
+    region) was tried first and reliably hit Earth Engine's 'too many concurrent
+    aggregations' throttle even at monthly chunk sizes, because it counts as one
+    aggregation per region per image, not one per image. 'Whole lake' is not painted
+    here -- it is just the sum of all 4 basins, computed client-side after getInfo()."""
+    order = ee.List(["I", "II", "III", "IV"])
+    basins = regions_fc.filter(ee.Filter.eq("role", "basin")).map(
+        lambda f: f.set("region_num", order.indexOf(f.get("region_id")).add(1)))
+    return ee.Image().toInt().paint(basins, "region_num").rename("region_num")
+
+
+def retry_getinfo(thunk, max_attempts: int = 6, base_delay: float = 20.0):
+    """SPACE-003's per-region reduceRegions calls are heavier than the old single-region
+    ones and occasionally hit Earth Engine's transient 'Too many concurrent aggregations'
+    throttling -- retry with exponential backoff rather than aborting the whole run."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return thunk()
+        except Exception as exc:  # noqa: BLE001
+            if attempt == max_attempts or "oncurrent aggregation" not in str(exc):
+                raise
+            delay = base_delay * (2 ** (attempt - 1))
+            print(json.dumps({"RETRY_AFTER_THROTTLE": {"attempt": attempt, "delay_s": delay,
+                                                         "error": str(exc)}}), flush=True)
+            time.sleep(delay)
+
+
+def _masked_lake_stat_image(runner: Any, ee: Any, image: Any, stream: dict[str, Any]) -> Any:
+    """The same accepted/weighted/area bands `_per_day_feature` reduces over the whole
+    lake, but left as an (unreduced) masked image -- so a caller can reduceRegions it
+    over several region geometries (e.g. SPACE-003 basins) in one Earth Engine call
+    instead of one reduceRegion call per region."""
     image = ee.Image(image)
     masks = runner._masks(image, stream)
     decoded = masks["decoded"]
@@ -379,11 +413,17 @@ def _per_day_feature(audit010: Any, runner: Any, ee: Any, image: Any, stream: di
     c = v.And(m.lte(1)).And(d.eq(0)).And(e.lte(1)).And(t.lte(1)).unmask(0)
     lst_c = lst.multiply(0.02).subtract(273.15)
     area = ee.Image.pixelArea()
-    stacked = ee.Image.cat([
+    return ee.Image.cat([
         lst_c.multiply(area).rename("weighted_sum"),
         area.rename("area_sum"),
         ee.Image.constant(1).rename("accepted_count"),
     ]).updateMask(c)
+
+
+def _per_day_feature(audit010: Any, runner: Any, ee: Any, image: Any, stream: dict[str, Any],
+                     geometry: Any, context: dict[str, Any]) -> Any:
+    image = ee.Image(image)
+    stacked = _masked_lake_stat_image(runner, ee, image, stream)
     reduced = ee.Dictionary(stacked.reduceRegion(
         reducer=ee.Reducer.sum(), geometry=geometry, crs=context["crs"],
         crsTransform=context["transform"], bestEffort=False, maxPixels=2_000_000, tileScale=1))
