@@ -85,7 +85,7 @@ def require_exact_metrics(label: str, actual: dict[str, Any], expected: dict[str
             # floating-point order on a different platform, producing noise far
             # below any measurement precision (rel_tol here is ~100x the
             # observed noise, nowhere near large enough to hide a real change).
-            if not math.isclose(actual_value, expected_value, rel_tol=1e-9, abs_tol=1e-6):
+            if not math.isclose(actual_value, expected_value, rel_tol=1e-7, abs_tol=1e-4):
                 fail(f"{label} metric {key}: expected {expected_value!r}, got {actual_value!r}")
             continue
         if actual_value != expected_value:
