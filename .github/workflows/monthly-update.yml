@@ -18,7 +18,7 @@ on:
     # (latestCompleteMonth in app/balaton_anomaly_app.js), so this date only affects
     # how promptly a finished month actually appears, not whether an unfinished one
     # could be shown.
-    - cron: '41 13 9 11 *'  # TEMPORARY one-off test trigger, reverted right after the test run
+    - cron: '0 6 7 * *'
   workflow_dispatch: {}  # manual "Run workflow" button, for testing or an off-cycle refresh
 
 permissions:
