@@ -82,14 +82,32 @@ def require_exact_metrics(label: str, actual: dict[str, Any], expected: dict[str
             fail(f"{label} metric {key}: expected {expected_value!r}, got {actual.get(key)!r}")
 
 
+def _normalize_content_type_spacing(value: Any) -> Any:
+    """Collapse optional whitespace around ';' in a Content-Type header.
+
+    HTTP media-type parameters allow (but don't require) a space after the
+    ';' separator (RFC 9110); some servers omit it. That spacing is not part
+    of what this verifier is actually checking, so it's normalized away
+    before comparison instead of being treated as a verification failure.
+    """
+    if not isinstance(value, str):
+        return value
+    return re.sub(r"[ \t]*;[ \t]*", ";", value)
+
+
 def require_http(label: str, actual: dict[str, Any], url: str, content_type: str) -> None:
     expected = {
         "requested_url": url, "final_url": url, "redirect_count": 0,
         "http_status": 200, "content_type": content_type, "content_encoding": "",
     }
     for key, value in expected.items():
-        if actual.get(key) != value:
-            fail(f"{label} HTTP {key}: expected {value!r}, got {actual.get(key)!r}")
+        actual_value = actual.get(key)
+        if key == "content_type":
+            if _normalize_content_type_spacing(actual_value) != _normalize_content_type_spacing(value):
+                fail(f"{label} HTTP {key}: expected {value!r}, got {actual_value!r}")
+            continue
+        if actual_value != value:
+            fail(f"{label} HTTP {key}: expected {value!r}, got {actual_value!r}")
 
 
 def parse_original_gml_content_type(raw_header: Any) -> dict[str, Any]:
