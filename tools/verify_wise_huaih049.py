@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -78,8 +79,17 @@ def fail(message: str) -> None:
 
 def require_exact_metrics(label: str, actual: dict[str, Any], expected: dict[str, Any]) -> None:
     for key, expected_value in expected.items():
-        if actual.get(key) != expected_value:
-            fail(f"{label} metric {key}: expected {expected_value!r}, got {actual.get(key)!r}")
+        actual_value = actual.get(key)
+        if isinstance(expected_value, float) and isinstance(actual_value, float):
+            # GEOS/PROJ can sum a polygon's coordinates in a slightly different
+            # floating-point order on a different platform, producing noise far
+            # below any measurement precision (rel_tol here is ~100x the
+            # observed noise, nowhere near large enough to hide a real change).
+            if not math.isclose(actual_value, expected_value, rel_tol=1e-9, abs_tol=1e-6):
+                fail(f"{label} metric {key}: expected {expected_value!r}, got {actual_value!r}")
+            continue
+        if actual_value != expected_value:
+            fail(f"{label} metric {key}: expected {expected_value!r}, got {actual_value!r}")
 
 
 def _normalize_content_type_spacing(value: Any) -> Any:
