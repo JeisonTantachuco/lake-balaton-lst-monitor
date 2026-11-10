@@ -118,8 +118,22 @@ def doy_of(date_str):
 
 
 def load_published_daily(ee, root):
+    # A single getInfo() on the whole collection works only while it stays under
+    # Earth Engine's ~5000-element query cap; the record has since grown past
+    # that (13,000+ rows), so it's paged out in batches instead.
     fc = ee.FeatureCollection(root + "daily_anomaly_records")
-    return fc.getInfo()["features"]
+    batch_size = 4000
+    features = []
+    offset = 0
+    while True:
+        batch = ee.FeatureCollection(fc.toList(batch_size, offset)).getInfo()["features"]
+        if not batch:
+            break
+        features.extend(batch)
+        if len(batch) < batch_size:
+            break
+        offset += batch_size
+    return features
 
 
 def main():
