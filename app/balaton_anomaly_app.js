@@ -24,13 +24,38 @@
 /* ------------------------------------------------------------------ constants */
 
 var ASSET_ROOT   = 'projects/ee-jtantaroman/assets/balaton_anomaly/';
-var LAKE         = ee.FeatureCollection(ASSET_ROOT + 'lake_boundary');
 var CLIMATOLOGY  = ee.FeatureCollection(ASSET_ROOT + 'climatology_baseline');
 var DAILY        = ee.FeatureCollection(ASSET_ROOT + 'daily_anomaly_records');
 var MONTHLY      = ee.FeatureCollection(ASSET_ROOT + 'monthly_summaries');
-// One MODIS pixel inward from the approved polygon (SPACE-002) — the same geometry the
-// published assets were computed on, so the map and the readouts agree.
-var LAKE_GEOM    = LAKE.geometry().buffer(-926.6254331387497, 50);
+// SPACE-003 — the 4 traditional basins, cut from the same eroded lake polygon below.
+// The I/II and II/III dividers are positioned at real local width-minima of that polygon's
+// own medial-axis centerline, chosen (per the published Li et al. (2024) basin map) among
+// several real geometric candidates rather than digitized wholesale from either figure; the
+// III/IV divider is simply where the lake itself disconnects at the Tihany channel. Every
+// daily/monthly record in DAILY / MONTHLY carries a region_id: 'whole_lake' or one of
+// 'I'..'IV'. Selecting a basin only changes which region_id is queried — it never
+// recomputes anything client-side.
+var BASINS       = ee.FeatureCollection(ASSET_ROOT + 'basin_boundaries');
+
+// One MODIS pixel inward from the approved polygon (SPACE-002). This asset's own
+// 'whole_lake' feature was built server-side in Python with a 1 m buffer tolerance
+// (the same geometry the basins were cut from and the published assets were computed
+// on), whereas re-buffering LAKE.geometry() here in JS only gets a 50 m tolerance —
+// visibly different curves. Reading it back from BASINS keeps the outline, the basin
+// cuts, and the underlying data all pixel-consistent with each other.
+var LAKE_GEOM    = BASINS.filter(ee.Filter.eq('region_id', 'whole_lake')).geometry();
+var REGION_ORDER = ['whole_lake', 'I', 'II', 'III', 'IV'];
+var REGION_NAMES = {
+  whole_lake: 'Whole lake', I: 'Basin I (Keszthely)', II: 'Basin II (Szigliget)',
+  III: 'Basin III (Szemes)', IV: 'Basin IV (Siófok)'
+};
+
+// "lake" vs "basin" wording for coverage captions below — these read directly off
+// whichever region's own data was fetched (loadMonth/loadYear filter by region_id),
+// so the word has to track the selection, not stay hardcoded to "lake".
+function regionWord(regionId) {
+  return (regionId || regionSelect.getValue()) === 'whole_lake' ? 'lake' : 'basin';
+}
 
 // Safe, permissive placeholder for widget ranges only (today's date can never be
 // later than the true last export, so nothing real is ever out of reach) -- corrected
@@ -103,8 +128,34 @@ function passClockWindow(streamId, iso) {
 // is shown in a separate plain label next to it instead, which only ever has its text
 // replaced (`.setValue`) — never its selection state — so there is nothing to break.
 
-var LST_VIS = {min: -5, max: 32,
-               palette: ['#2166ac', '#67a9cf', '#d1e5f0', '#fddbc7', '#ef8a62', '#b2182b']};
+// A fixed year-round -5..32°C stretch (kept below as the fallback/default) leaves any
+// single day or month looking washed out, since the lake's real range for e.g. January
+// (roughly -14..7°C) occupies barely a third of that scale. Replaced with a per-calendar-
+// month stretch instead, sized from the real monitoring record (2023-2026, all 4 streams,
+// whole-lake daily readings, 186-328 per month) — the 1st/99th percentile of each month,
+// rounded outward to the nearest whole degree. A coarser 3-month "season" bucket was
+// tried first and rejected: spring and autumn each span almost as much as the old
+// year-round range (e.g. spring pools March's near-freezing days with May's 20°C+ days),
+// since the transition months at either end dominate a 3-month window — a per-month
+// table avoids that.
+var LST_PALETTE = ['#2166ac', '#67a9cf', '#d1e5f0', '#fddbc7', '#ef8a62', '#b2182b'];
+var MONTHLY_LST_RANGE = {
+  1: [-10, 5],  2: [-14, 7],  3: [-1, 11],  4: [2, 18],
+  5: [11, 23],  6: [15, 29],  7: [19, 29],  8: [18, 30],
+  9: [13, 26],  10: [6, 20],  11: [-3, 15], 12: [-7, 5]
+};
+function lstVisForMonth(month1to12) {
+  var r = MONTHLY_LST_RANGE[month1to12];
+  return {min: r[0], max: r[1], palette: LST_PALETTE};
+}
+// Fallback/default only (used before any map has been drawn, and as setPixelLayer's
+// no-visParams default) — every real temperature-mode draw below passes its own
+// month-specific vis from lstVisForMonth instead of relying on this fixed range.
+var LST_VIS = {min: -5, max: 32, palette: LST_PALETTE};
+// Tracks which fixed stretch the map layer just drawn actually used — LST_VIS by
+// default, but every real temperature-mode draw (drawDailyMap/drawMonthlyMap) sets
+// this to that day's/month's own lstVisForMonth() result first.
+var currentLstVis = LST_VIS;
 
 // Raw asset label -> colour and display text.
 var LABEL_COLOUR = {
@@ -215,42 +266,35 @@ function acceptedLstC(image, s) {
 
 /* ------------------------------------------------------------ per-pixel anomaly map */
 
-// Same ±5-day window and 2003-2022 baseline as the approved lake-wide method (METH-001),
-// computed live per pixel instead of precomputed as one lake-wide number. Built from real
-// per-year calendar dates (not Earth Engine's native dayOfYear filter) so leap years never
-// misalign the window by a day — 29 Feb folds onto 28 Feb in a non-leap year, matching the
-// existing engine's fold_day_of_year rule.
-var BASELINE_FIRST_YEAR = 2003;
-var BASELINE_LAST_YEAR = 2022;
-var ANOMALY_WINDOW_HALF_WIDTH_DAYS = 5;
+// Same ±5-day window and 2003-2022 baseline as the approved lake-wide method (METH-001).
+// Used to be computed live per pixel (filter the raw 20-year collection, reduce ~220
+// images) every time a map was drawn; now reads `pixel_normal_<stream>`, the per-pixel
+// per-calendar-day median+count asset the Python pipeline already builds from the exact
+// same formula/window/QC (tools/build_pixel_normal.py) — spot-checked against the live
+// calculation for 8 random stream/day combinations, every pixel matched exactly (diff ==
+// 0 everywhere). Same numbers, no more ~220-image rebuild on every map draw.
 var ANOMALY_MIN_HISTORICAL_N = 10;   // METH-003's existing minimum-sample guardrail, reused per pixel
 
-function isLeapYear(y) { return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0; }
-
-function historicalWindowFilter(targetIso) {
-  var mm = Number(targetIso.slice(5, 7)), dd = Number(targetIso.slice(8, 10));
-  var filters = [];
-  for (var y = BASELINE_FIRST_YEAR; y <= BASELINE_LAST_YEAR; y++) {
-    var day = dd;
-    if (mm === 2 && dd === 29 && !isLeapYear(y)) { day = 28; }
-    var ref = new Date(Date.UTC(y, mm - 1, day));
-    var start = new Date(ref); start.setUTCDate(start.getUTCDate() - ANOMALY_WINDOW_HALF_WIDTH_DAYS);
-    var end = new Date(ref); end.setUTCDate(end.getUTCDate() + ANOMALY_WINDOW_HALF_WIDTH_DAYS + 1);
-    filters.push(ee.Filter.date(isoOf(start), isoOf(end)));
-  }
-  return ee.Filter.or.apply(null, filters);
+// `targetIso` ('YYYY-MM-DD') picks which of the asset's 365 day-of-year band pairs to use —
+// 29 Feb folds onto 28 Feb, the same fold build_pixel_normal.py itself used when building it.
+function pixelClimatology(streamId, targetIso) {
+  var mm = targetIso.slice(5, 7), dd = targetIso.slice(8, 10);
+  if (mm === '02' && dd === '29') { dd = '28'; }
+  var name = 'd' + mm + dd;
+  var normal = ee.Image(ASSET_ROOT + 'pixel_normal_' + streamId);
+  return normal.select(name + '_med').rename('hist_median')
+    .addBands(normal.select(name + '_n').rename('n_obs'));
 }
 
-// Per-pixel historical median + observation count for one stream, over the ±5-day/20-year
-// window around `targetIso` — the "normal" map, built live (no precomputed asset), the same
-// way the monthly bias-corrected map already reduces a filtered collection on the fly.
-function pixelClimatology(streamId, targetIso) {
-  var s = STREAMS[streamId];
-  var col = ee.ImageCollection(s.col).filter(historicalWindowFilter(targetIso));
-  var maskedCol = col.map(function (img) { return acceptedLstC(img, s); });
-  var median = maskedCol.reduce(ee.Reducer.median()).rename('hist_median');
-  var nObs = maskedCol.map(function (img) { return img.mask(); }).reduce(ee.Reducer.sum()).rename('n_obs');
-  return median.addBands(nObs);
+// Same lookup, but for an image whose date isn't known until server-side evaluation (used
+// by the monthly map, which maps this over every image in a month at once) — `mmdd` is
+// built from the image's own date with ee.String operations instead of a JS string slice.
+function pixelClimatologyForImage(streamId, img) {
+  var mmdd = ee.Image(img).date().format('MMdd');
+  mmdd = ee.String(ee.Algorithms.If(mmdd.equals('0229'), '0228', mmdd));
+  var normal = ee.Image(ASSET_ROOT + 'pixel_normal_' + streamId);
+  return normal.select(ee.String('d').cat(mmdd).cat('_med')).rename('hist_median')
+    .addBands(normal.select(ee.String('d').cat(mmdd).cat('_n')).rename('n_obs'));
 }
 
 // Today's reading minus that SAME PIXEL's own historical normal — not minus the single
@@ -259,9 +303,6 @@ function pixelClimatology(streamId, targetIso) {
 // geography as a false anomaly. A pixel is only drawn when BOTH today's own QA-002 check
 // passes AND that pixel has at least `ANOMALY_MIN_HISTORICAL_N` historical observations —
 // otherwise blank, same "never guess" principle as the rest of this product (QA-001).
-// Takes the climatology already built by the caller — this is the expensive ~220-image
-// reduction, and it must only be built once per map draw, not once for the map layer and
-// again for the coverage numbers (that duplication was the main cause of slow rendering).
 function pixelAnomaly(image, streamId, clim) {
   var s = STREAMS[streamId];
   var todayLstC = acceptedLstC(image, s);
@@ -285,9 +326,10 @@ function pixelAnomaly(image, streamId, clim) {
 // asymmetric and stream-specific, not a clean "narrower in one season" story, and a
 // seasonal scale would make the same anomaly value look more or less dramatic purely
 // because of when it happened, undermining the point of an anomaly map. A seasonal
-// scale remains reasonable for the raw TEMPERATURE map (a fixed -5..32 degC range
-// looks washed out within any one season) but not for anomaly, which is already
-// normalised to each day's own seasonal baseline by construction.
+// (here, per-calendar-month) scale is used for the raw TEMPERATURE map instead
+// (lstVisForMonth, below LST_VIS) — a single fixed range looks washed out within any
+// one season — but deliberately not for this anomaly map, which is already normalised
+// to each day's own seasonal baseline by construction.
 var ANOMALY_VIS = {min: -6, max: 6,
                    palette: ['#2166ac', '#67a9cf', '#d1e5f0', '#f7f7f7', '#fddbc7', '#ef8a62', '#b2182b']};
 
@@ -305,25 +347,85 @@ var panel = ui.Panel({style: {width: '470px', padding: '12px'}});
 ui.root.add(panel);
 ui.root.add(mapPanel);
 
-// The lake outline is added exactly once and never touched again, so if the
-// viewer switches it off in the layer list it stays off.
-var outlineLayer = mapPanel.addLayer(
-  ee.Image().byte().paint(LAKE_GEOM, 1, 2), {palette: ['#111111']}, 'Lake outline');
+// All 4 basin dividers are always visible, in every view, regardless of which region is
+// selected. The lake's own outer perimeter is only drawn when "Whole lake" itself is
+// selected (purple, to match the basin highlight style) — when one basin is selected, the
+// lake outline would just be a second, redundant line around basin I/IV's own outer edge
+// (since every basin's outer edge IS part of the lake shoreline), so it's dropped and only
+// that basin's own divider is highlighted.
+//
+// These outline layers are created once and then left alone unless their OWN on-screen
+// state actually changes (which region is selected) — switching the date/stream/map mode
+// never touches them. Staying on top of the LST pixel layer, which DOES get replaced on
+// every such change, is handled without re-touching the outlines at all: setPixelLayer
+// below inserts the new pixel layer at z-index 0 (the very bottom of the stack) instead of
+// appending it on top, so the outlines — created earlier and sitting above index 0 — are
+// never buried in the first place and never need re-adding just to climb back on top of a
+// raster that changed for an unrelated reason. (Earlier revisions removed and re-added
+// every outline on every raster change, "to bring them back to the front" — that re-add is
+// exactly the needless reload that was reported: boundaries/highlight visibly refreshing on
+// every day/stream/mode change even though nothing about the selection had changed.)
+var outlineLayer = null;
+var lakeOutlineShown = false;
+function addLakeOutline(regionId) {
+  var shouldShow = (regionId === 'whole_lake');
+  if (shouldShow === lakeOutlineShown) { return; }
+  if (outlineLayer) { mapPanel.layers().remove(outlineLayer); outlineLayer = null; }
+  lakeOutlineShown = shouldShow;
+  if (!shouldShow) { return; }
+  outlineLayer = mapPanel.addLayer(
+    ee.Image().byte().paint(LAKE_GEOM, 1, 3),
+    {palette: ['#9c27b0']}, 'Lake outline');
+}
+
+// The 4 basin dividers, always shown together, grey — this layer's content never depends
+// on which region is selected, so it is built exactly once and never touched again. The one
+// basin matching the current selection (if any) additionally gets a purple highlight in its
+// own layer on top; that's the only part a region switch actually needs to touch.
+var basinContextLayer = null;
+var basinHighlightLayer = null;
+var highlightedRegion;
+function setBasinOutline(regionId) {
+  if (!basinContextLayer) {
+    basinContextLayer = mapPanel.addLayer(
+      ee.Image().byte().paint(BASINS.filter(ee.Filter.neq('region_id', 'whole_lake')), 1, 1.5),
+      {palette: ['#555555']}, 'Basin boundaries');
+  }
+  if (regionId === highlightedRegion) { return; }
+  if (basinHighlightLayer) { mapPanel.layers().remove(basinHighlightLayer); basinHighlightLayer = null; }
+  highlightedRegion = regionId;
+  if (regionId === 'whole_lake') { return; }
+  var basinGeom = BASINS.filter(ee.Filter.eq('region_id', regionId)).geometry();
+  basinHighlightLayer = mapPanel.addLayer(
+    ee.Image().byte().paint(basinGeom, 1, 3), {palette: ['#9c27b0']},
+    REGION_NAMES[regionId] + ' (selected)');
+}
+
+// The LST/anomaly raster, replaced on every date/stream/mode change — unlike the outlines
+// above, this really does need to change every time. Inserted at z-index 0 (the bottom of
+// the layer stack) rather than appended on top, so it slots in underneath whatever outline
+// layers already exist without ever having to move them.
 var pixelLayer = null;
 function setPixelLayer(image, name, visParams) {
   if (pixelLayer) { mapPanel.layers().remove(pixelLayer); pixelLayer = null; }
-  if (image) { pixelLayer = mapPanel.addLayer(image, visParams || LST_VIS, name); }
+  if (image) {
+    pixelLayer = ui.Map.Layer(image, visParams || LST_VIS, name);
+    mapPanel.layers().insert(0, pixelLayer);
+  }
 }
+
+addLakeOutline('whole_lake');
 
 /**
  * Reads the min/max of the accepted lake pixels for the image just shown, so the
  * legend bar can be cropped to that window (see legendRampImage/updateLegend
- * below). The map layer itself always uses the fixed LST_VIS (-5..32 °C) colour
- * stretch — never this range — so a given temperature always renders as the same
- * colour and different days/months stay visually comparable. If the map were
- * rescaled to each image's own min/max instead, a mild day (say -2 to 13 °C)
- * would get stretched across the full blue-to-red range and look just as extreme
- * as a genuinely hot day reaching 32 °C, which is misleading.
+ * below). The map layer itself always uses a fixed per-calendar-month colour
+ * stretch (lstVisForMonth) — never this range — so a given temperature always
+ * renders as the same colour and different days within the same month stay
+ * visually comparable. If the map were rescaled to each image's own min/max
+ * instead, a mild day (say -2 to 13 °C) would get stretched across the full
+ * blue-to-red range and look just as extreme as a genuinely hot day, which is
+ * misleading.
  */
 function computeLstRange(lstImage, callback) {
   lstImage.reduceRegion({
@@ -356,6 +458,18 @@ var coverageLabel = ui.Label(
 panel.add(coverageLabel);
 
 /* -- controls -- */
+// SPACE-003 — whole lake (default) or one of the 4 derived basins. Changing this
+// changes only which region_id is queried from the same published records; it never
+// triggers any recomputation. ERA5-Land weather context (further down) stays scoped to
+// the whole lake regardless of this choice — its ~9 km grid is too coarse to usefully
+// resolve differences between basins anyway, and the panel says so explicitly.
+var regionSelect = ui.Select({
+  items: REGION_ORDER.map(function (id) { return {label: REGION_NAMES[id], value: id}; }),
+  value: 'whole_lake', style: {stretch: 'horizontal'}
+});
+panel.add(ui.Label('Lake region', {fontWeight: 'bold', margin: '6px 0 2px 0'}));
+panel.add(regionSelect);
+
 var modeSelect = ui.Select({
   items: [{label: 'Single day', value: 'daily'}, {label: 'Whole month', value: 'monthly'}],
   value: 'daily', style: {stretch: 'horizontal'}
@@ -404,8 +518,8 @@ function rebuildStreamSelect(iso) {
   streamSelect = fresh;
 }
 
-// Single-day map mode: plain temperature (the original map), or the new per-pixel
-// anomaly map (today's reading minus that same pixel's own 2003-2022 normal).
+// Map mode, shared by both views: plain temperature, or the per-pixel anomaly map (a
+// day's/month's reading minus that same pixel's own 2003-2022 normal).
 var mapModeSelect = ui.Select({
   items: [{label: 'Temperature', value: 'temp'}, {label: 'Anomaly', value: 'anomaly'}],
   value: 'temp', style: {stretch: 'horizontal'}
@@ -612,10 +726,14 @@ function fogWord(depC) {
 // the four-pass table and the chart are all rebuilt client-side, instantly, with
 // no new Earth Engine request. Only the pixel map (a different satellite scene
 // each day) still needs a fresh request per day.
-var monthCache = {};   // 'YYYY-MM' -> {streamId: {byDate: {date: props}, list: [props,...]}}
+// Cache key is 'YYYY-MM|regionId' (SPACE-003) -- a month's whole-lake data and its
+// per-basin data are fetched and cached independently, so switching the region
+// selector back and forth within the same month never re-fetches what was already seen.
+var monthCache = {};   // 'YYYY-MM|regionId' -> {streamId: {byDate: {date: props}, list: [props,...]}}
 
-function loadMonth(ym, callback) {
-  if (monthCache[ym]) { callback(monthCache[ym]); return; }
+function loadMonth(ym, regionId, callback) {
+  var key = ym + '|' + regionId;
+  if (monthCache[key]) { callback(monthCache[key]); return; }
   // The month dropdowns never offer a month beyond LAST_EXPORT_DATE's boundary, but the
   // date-slider's calendar popup is deliberately left free to scroll into any date up to
   // today (see the comment where LAST_EXPORT_DATE is corrected, below) -- without this
@@ -624,6 +742,7 @@ function loadMonth(ym, callback) {
   // what this boundary is supposed to prevent everywhere, not just in the dropdowns.
   DAILY.filter(ee.Filter.stringStartsWith('date_utc', ym))
     .filter(ee.Filter.lte('date_utc', LAST_EXPORT_DATE))
+    .filter(ee.Filter.eq('region_id', regionId))
     .sort('date_utc')
     .evaluate(function (fc) {
       var byStream = {};
@@ -636,7 +755,7 @@ function loadMonth(ym, callback) {
         b.byDate[p.date_utc] = p;
         b.list.push(p);
       });
-      monthCache[ym] = byStream;
+      monthCache[key] = byStream;
       callback(byStream);
     });
 }
@@ -695,16 +814,18 @@ function loadWeather(dstr, streamId, callback) {
 // year fetches every stream's monthly summaries for that year. Picking a
 // different month in the SAME year reuses it — nothing to recompute, since a
 // month's summary never depends on which month is currently on screen.
-var yearCache = {};   // 'YYYY' -> {streamId: {byMonth: {'YYYY-MM': props}, list: [props,...]}}
+var yearCache = {};   // 'YYYY|regionId' -> {streamId: {byMonth: {'YYYY-MM': props}, list: [props,...]}}
 
-function loadYear(year, callback) {
-  if (yearCache[year]) { callback(yearCache[year]); return; }
+function loadYear(year, regionId, callback) {
+  var key = year + '|' + regionId;
+  if (yearCache[key]) { callback(yearCache[key]); return; }
   // Same reasoning as the filter in loadMonth: a month beyond LAST_EXPORT_DATE's
   // boundary is never offered in the month dropdown, but without this filter its row
   // would still be fetched and plotted as a real point on the monthly chart -- visible
   // even though it cannot be directly selected, the same leak in a different panel.
   MONTHLY.filter(ee.Filter.stringStartsWith('month', year))
     .filter(ee.Filter.lte('month', LAST_EXPORT_DATE.slice(0, 7)))
+    .filter(ee.Filter.eq('region_id', regionId))
     .sort('month')
     .evaluate(function (fc) {
       var byStream = {};
@@ -717,7 +838,7 @@ function loadYear(year, callback) {
         b.byMonth[p.month] = p;
         b.list.push(p);
       });
-      yearCache[year] = byStream;
+      yearCache[key] = byStream;
       callback(byStream);
     });
 }
@@ -729,20 +850,39 @@ function currentDate() {
   return isoOf(v && v.length ? v[0] : v);
 }
 
+// The per-pixel map (and the weather/overpass panels next to it) depend only on the
+// stream, the date and the temp/anomaly map mode — never on which region is selected,
+// since they always cover the whole lake. `lastDailyMapKey` remembers what the map was
+// last drawn for, so switching basins on the SAME day/stream/mode only re-queries the
+// cheap, already-precomputed per-region table (loadMonth) and re-draws the readout/chart/
+// outline — it no longer re-runs the live per-pixel EE computation (the expensive part,
+// especially the anomaly map's climatology build) for data that wouldn't have changed.
+var lastDailyMapKey = null;
+
 function updateDaily() {
   var streamId = streamSelect.getValue();
+  var regionId = regionSelect.getValue();
   var dstr = currentDate();
   var ym = dstr.slice(0, 7);
   var dayName = Number(dstr.slice(8, 10)) + ' ' + MONTH_NAMES[Number(dstr.slice(5, 7)) - 1];
+  var mapMode = mapModeSelect.getValue();
 
   rebuildStreamSelect(dstr);
+  addLakeOutline(regionId);
+  setBasinOutline(regionId);
 
-  // Clear any previous day's map immediately rather than leaving it on screen while the
-  // new day loads — it is redrawn below, once we know whether this day/pass actually has
-  // an accepted reading at all.
-  setPixelLayer(null);
-  updateLegend(null);
-  overpassPanel.clear();
+  var mapKey = streamId + '|' + dstr + '|' + mapMode;
+  var mapNeedsRedraw = (mapKey !== lastDailyMapKey);
+  lastDailyMapKey = mapKey;
+
+  if (mapNeedsRedraw) {
+    // Clear any previous day's map immediately rather than leaving it on screen while the
+    // new day loads — it is redrawn below, once we know whether this day/pass actually has
+    // an accepted reading at all.
+    setPixelLayer(null);
+    updateLegend(null);
+    overpassPanel.clear();
+  }
 
   dailyReadout.clear();
   dailyReadout.add(ui.Label('Loading…', {color: '#999', fontSize: '13px'}));
@@ -750,15 +890,18 @@ function updateDaily() {
   passTablePanel.add(ui.Label('Loading…', {color: '#999', fontSize: '13px'}));
   dailyChartPanel.clear();
   dailyChartPanel.add(ui.Label('Loading…', {color: '#999', fontSize: '13px'}));
-  weatherPanel.clear();
-  weatherPanel.add(ui.Label('Loading weather…', {color: '#999', fontSize: '13px'}));
+  if (mapNeedsRedraw) {
+    weatherPanel.clear();
+    weatherPanel.add(ui.Label('Loading weather…', {color: '#999', fontSize: '13px'}));
+  }
 
-  loadMonth(ym, function (byStream) {
+  loadMonth(ym, regionId, function (byStream) {
     var p = byStream[streamId].byDate[dstr];
     fillDailyReadout(streamId, dstr, dayName, p);
     fillPassTable(dstr, byStream);
     drawSeriesChart(dailyChartPanel, byStream[streamId].list,
       ymLabel(ym) + ' — ' + STREAMS[streamId].short, dstr);
+    if (!mapNeedsRedraw) { return; }
     // Only fetch/draw the pixel map when there is an actual accepted reading for this
     // pass and date — matching the readout exactly, rather than checking separately
     // whether *a* MODIS scene exists that day (which can be true even on a day this
@@ -767,6 +910,7 @@ function updateDaily() {
     if (p) { drawDailyMap(streamId, dstr, p); } else { setPixelLayer(null); updateLegend(null); overpassPanel.clear(); }
   });
 
+  if (!mapNeedsRedraw) { return; }
   // Weather is its own fetch (a different collection from the anomaly records) —
   // the reading and pass table land first, weather fills in a moment later. It is
   // matched to the SELECTED pass's overpass hour.
@@ -795,7 +939,8 @@ function drawDailyMap(streamId, dstr, p) {
     } else {
       anomalyCoveragePanel.clear();
       var lstC = acceptedLstC(image, s).clip(LAKE_GEOM);
-      setPixelLayer(lstC, s.short + ' — ' + dstr);   // fixed LST_VIS colour scale
+      currentLstVis = lstVisForMonth(Number(dstr.slice(5, 7)));
+      setPixelLayer(lstC, s.short + ' — ' + dstr, currentLstVis);
       computeLstRange(lstC, updateLegend);           // informational range only
     }
 
@@ -839,7 +984,7 @@ function drawDailyMap(streamId, dstr, p) {
 // talking, not a real result worth showing.
 function drawAnomalyMap(image, streamId, dstr, p) {
   var s = STREAMS[streamId];
-  var clim = pixelClimatology(streamId, dstr);   // the expensive part — built exactly once
+  var clim = pixelClimatology(streamId, dstr);   // cheap asset lookup, reused for the coverage numbers below
   var anomaly = pixelAnomaly(image, streamId, clim).clip(LAKE_GEOM).rename('anomaly_ok');
   setPixelLayer(anomaly, s.short + ' — ' + dstr + ' anomaly vs 2003–2022', ANOMALY_VIS);
   showAnomalyLegend();
@@ -942,6 +1087,11 @@ function fillDailyReadout(streamId, dstr, dayName, p) {
   dailyReadout.add(ui.Label(
     STREAMS[streamId].short + '  ·  ' + dayName + ' ' + dstr.slice(0, 4),
     {fontWeight: 'bold', fontSize: '14px', margin: '0 0 4px 0'}));
+  var regionId = regionSelect.getValue();
+  if (regionId !== 'whole_lake') {
+    dailyReadout.add(ui.Label(REGION_NAMES[regionId],
+      {fontSize: '12px', color: '#9c27b0', fontWeight: 'bold', margin: '-3px 0 4px 0'}));
+  }
 
   if (!p) {
     dailyReadout.add(bigLabel('No reading for this day', '#999'));
@@ -969,8 +1119,8 @@ function fillDailyReadout(streamId, dstr, dayName, p) {
     + dayName + ' ± 5 days, then averaged over the lake — not one single lake-wide normal.',
     {fontSize: '11px', color: '#999', margin: '1px 0 4px 0'}));
   dailyReadout.add(kv('Clear-sky view',
-    Math.round(p.valid_water_fraction * 100) + '% of the lake (' + p.accepted_pixel_count
-    + ' px) — ' + (p.confidence === 'ok' ? 'good' : 'low; treat with caution'),
+    Math.round(p.valid_water_fraction * 100) + '% of the ' + regionWord(regionId) + ' ('
+    + p.accepted_pixel_count + ' px) — ' + (p.confidence === 'ok' ? 'good' : 'low; treat with caution'),
     p.confidence === 'ok' ? '#2e7d32' : '#cc4c02'));
 }
 
@@ -998,9 +1148,10 @@ function fillPassTable(dstr, byStream) {
     'extreme warm observation': 'extreme warm'
   };
 
+  var rWord = regionWord();
   var header = ui.Panel({layout: ui.Panel.Layout.flow('horizontal')});
   header.add(cell('pass', C_PASS, {color: '#888'}));
-  header.add(cell('lake', C_COV, {color: '#888'}));
+  header.add(cell(rWord, C_COV, {color: '#888'}));
   header.add(cell('temp', C_TEMP, {color: '#888'}));
   header.add(cell('vs norm', C_NORM, {color: '#888'}));
   header.add(cell('verdict  ·  rank', null, {color: '#888'}));
@@ -1010,7 +1161,7 @@ function fillPassTable(dstr, byStream) {
     var p = byStream[id].byDate[dstr];
     var low = !!(p && p.confidence === 'low');
     var row = ui.Panel({layout: ui.Panel.Layout.flow('horizontal'), style: {margin: '1px 0'}});
-    // A low-coverage row is coloured orange — the "lake" % already shows why, so
+    // A low-coverage row is coloured orange — the coverage % already shows why, so
     // there is no separate marker.
     row.add(cell(STREAMS[id].short, C_PASS, low ? {color: '#cc4c02'} : null));
     if (!p) {
@@ -1019,8 +1170,8 @@ function fillPassTable(dstr, byStream) {
       row.add(cell('', C_NORM));
       row.add(cell('', null));
     } else {
-      // "lake" column = how much of the lake this pass actually saw — shown for
-      // every row, not only the low ones, so a 16%-coverage `ok` day is visible.
+      // coverage column = how much of the selected region this pass actually saw —
+      // shown for every row, not only the low ones, so a 16%-coverage `ok` day is visible.
       row.add(cell(Math.round(p.valid_water_fraction * 100) + '%', C_COV,
         {color: low ? '#cc4c02' : '#888'}));
       row.add(cell(fmt(p.daily_lst_c) + '°', C_TEMP));
@@ -1036,7 +1187,7 @@ function fillPassTable(dstr, byStream) {
   });
 
   passTablePanel.add(ui.Label(
-    '"lake" = share of the lake seen clearly (orange = under 15%, less certain).',
+    '"' + rWord + '" = share of the ' + rWord + ' seen clearly (orange = under 15%, less certain).',
     {fontSize: '11px', color: '#888', margin: '4px 0 0 0'}));
   passTablePanel.add(ui.Label(
     '"rank" = where the reading sits in the 2003–2022 record; the verdict bands are at the '
@@ -1055,6 +1206,11 @@ function fillWeatherPanel(dstr, streamId, w) {
   weatherPanel.add(ui.Label(
     'ERA5-Land reanalysis — context for the reading, not a measurement of the water.',
     {fontSize: '12px', color: '#888', margin: '0 0 3px 0'}));
+  if (regionSelect.getValue() !== 'whole_lake') {
+    weatherPanel.add(ui.Label(
+      'Always whole-lake — ERA5-Land’s ~9 km grid is too coarse to usefully tell basins apart.',
+      {fontSize: '11px', color: '#999', margin: '0 0 3px 0'}));
+  }
 
   if (dstr > LAST_EXPORT_DATE) { return; }
   if (!w) {
@@ -1101,6 +1257,7 @@ function fillWeatherPanel(dstr, streamId, w) {
 
 function updateMonthly() {
   var streamId = streamSelect.getValue();
+  var regionId = regionSelect.getValue();
   var ym = monthYearSelect.getValue();
   var year = ym.slice(0, 4);
   var monthName = ymLabel(ym);
@@ -1109,25 +1266,31 @@ function updateMonthly() {
   // month" — the only months where it could matter (March, October) already switch
   // partway through, so any single representative day is a judgement call.
   rebuildStreamSelect(ym + '-15');
+  addLakeOutline(regionId);
+  setBasinOutline(regionId);
 
   monthlyReadout.clear();
   monthlyReadout.add(ui.Label('Loading…', {color: '#999', fontSize: '13px'}));
   monthlyChartPanel.clear();
   monthlyChartPanel.add(ui.Label('Loading…', {color: '#999', fontSize: '13px'}));
 
-  loadYear(year, function (byStream) {
+  var mapMode = mapModeSelect.getValue();
+
+  loadYear(year, regionId, function (byStream) {
     var p = byStream[streamId].byMonth[ym];
     fillMonthlyReadout(streamId, monthName, p);
     drawMonthlySeriesChart(monthlyChartPanel, byStream[streamId].list,
       year + ' — ' + STREAMS[streamId].short, ym);
 
-    if (!p || p.state !== 'reported') { drawMonthlyMap(streamId, ym, null, null); return; }
+    if (!p || p.state !== 'reported') { setPixelLayer(null); updateLegend(null); return; }
+
+    if (mapMode === 'anomaly') { drawMonthlyAnomalyMap(streamId, ym); return; }
     // The bias-corrected map needs each day's own lake-average (see drawMonthlyMap).
     // Reuse the daily records already computed by the Phase 3 engine (loadMonth is
     // cached — free if this month was already opened in the single-day view) rather
     // than recomputing a fresh pixel reduction per image — that recomputation was
     // the main reason the monthly view got slower.
-    loadMonth(ym, function (dailyByStream) {
+    loadMonth(ym, regionId, function (dailyByStream) {
       var dayMeans = {};
       var byDate = dailyByStream[streamId].byDate;
       for (var d in byDate) {
@@ -1142,6 +1305,11 @@ function fillMonthlyReadout(streamId, monthName, p) {
   monthlyReadout.clear();
   monthlyReadout.add(ui.Label(STREAMS[streamId].short + '  ·  ' + monthName,
     {fontWeight: 'bold', fontSize: '14px', margin: '0 0 4px 0'}));
+  var regionId = regionSelect.getValue();
+  if (regionId !== 'whole_lake') {
+    monthlyReadout.add(ui.Label(REGION_NAMES[regionId],
+      {fontSize: '12px', color: '#9c27b0', fontWeight: 'bold', margin: '-3px 0 4px 0'}));
+  }
 
   if (!p) { monthlyReadout.add(bigLabel('No summary for this month', '#999')); return; }
   if (p.state !== 'reported') {
@@ -1214,8 +1382,30 @@ function drawMonthlyMap(streamId, ym, monthlyMeanC, dayMeans) {
       return lstC.subtract(dayMean).toFloat().rename('lst_c');
     }).mean();
     var meanC = pattern.add(monthlyMeanC).toFloat().clip(LAKE_GEOM);
-    setPixelLayer(meanC, s.short + ' — ' + ymLabel(ym) + ' mean');   // fixed LST_VIS scale
+    currentLstVis = lstVisForMonth(Number(ym.slice(5, 7)));
+    setPixelLayer(meanC, s.short + ' — ' + ymLabel(ym) + ' mean', currentLstVis);
     computeLstRange(meanC, updateLegend);
+  });
+}
+
+// Monthly per-pixel anomaly map: the mean, over every day in the month with a reading, of
+// that day's own per-pixel anomaly (the same quantity as the readout's "vs normal" number,
+// kept per-pixel instead of averaged over the lake first). Only practical now that the
+// climatology lookup is a cheap asset read (pixelClimatologyForImage) instead of a live
+// ~220-image rebuild — doing that once per day of the month would have been ~30x the cost
+// of the single-day anomaly map.
+function drawMonthlyAnomalyMap(streamId, ym) {
+  var s = STREAMS[streamId];
+  var start = ee.Date(ym + '-01');
+  var col = ee.ImageCollection(s.col).filterDate(start, start.advance(1, 'month'));
+  col.size().evaluate(function (n) {
+    if (!n) { setPixelLayer(null); updateLegend(null); return; }
+    var anomaly = col.map(function (img) {
+      img = ee.Image(img);
+      return pixelAnomaly(img, streamId, pixelClimatologyForImage(streamId, img));
+    }).mean().clip(LAKE_GEOM).rename('anomaly_ok');
+    setPixelLayer(anomaly, s.short + ' — ' + ymLabel(ym) + ' anomaly vs 2003–2022', ANOMALY_VIS);
+    showAnomalyLegend();
   });
 }
 
@@ -1240,8 +1430,8 @@ function drawSeriesChart(target, rows, title, highlightDate) {
   var hasHl = !!hlRow;
 
   var data = [hasHl
-    ? ['Date', 'Measured', 'Implied normal', 'Selected day']
-    : ['Date', 'Measured', 'Implied normal']];
+    ? ['Date', 'Measured', 'Normal', 'Selected day']
+    : ['Date', 'Measured', 'Normal']];
   rows.forEach(function (p) {
     // There is no single lake-wide "normal" to plot any more — each pixel has its own
     // (METH-007). This line is measured minus that day's pixel-first anomaly, i.e. what
@@ -1307,8 +1497,8 @@ function drawMonthlySeriesChart(target, rows, title, highlightMonth) {
   var hasHl = !!hlRow;
 
   var data = [hasHl
-    ? ['Month', 'Measured', 'Implied normal', 'Selected month']
-    : ['Month', 'Measured', 'Implied normal']];
+    ? ['Month', 'Measured', 'Normal', 'Selected month']
+    : ['Month', 'Measured', 'Normal']];
   rows.forEach(function (p) {
     var measured = (p.monthly_mean_lst_c === undefined) ? null : p.monthly_mean_lst_c;
     var typical = (measured !== null
@@ -1394,15 +1584,15 @@ legend.add(legendCaption);
 mapPanel.add(legend);
 
 // Called after every temperature-mode map layer redraw with that layer's actual
-// min/max. The map itself always uses the fixed LST_VIS colour stretch (untouched
+// min/max. The map itself always uses the fixed per-month colour stretch (untouched
 // here); this only re-crops the legend bar to the window that's actually on screen
 // right now, and relabels its endpoints to match — the bar's colours stay absolute
 // throughout.
 function updateLegend(range) {
   legendTitle.setValue('Lake-surface temperature (°C)');
-  var lo = range ? range.min : LST_VIS.min;
-  var hi = range ? range.max : LST_VIS.max;
-  legendBar.setImage(legendRampImage(lo, hi, LST_VIS));
+  var lo = range ? range.min : currentLstVis.min;
+  var hi = range ? range.max : currentLstVis.max;
+  legendBar.setImage(legendRampImage(lo, hi, currentLstVis));
   legendMinLabel.setValue(range ? fmt(lo) + '°' : '–');
   legendMaxLabel.setValue(range ? fmt(hi) + '°' : '–');
   legendCaption.setValue('this view\'s own range');
@@ -1434,8 +1624,8 @@ function refresh() {
   passTablePanel.style().set('shown', isDaily);
   weatherPanel.style().set('shown', isDaily);
   overpassPanel.style().set('shown', isDaily);
-  mapModeLabel.style().set('shown', isDaily);
-  mapModeSelect.style().set('shown', isDaily);
+  // Temperature/Anomaly toggle: shown in both views now that the monthly anomaly map is
+  // cheap enough to offer too — only the per-day coverage breakdown below it stays daily-only.
   anomalyCoveragePanel.style().set('shown', isDaily);
   monthGroup.style().set('shown', !isDaily);
   monthlyReadout.style().set('shown', !isDaily);
@@ -1445,6 +1635,7 @@ function refresh() {
 
 modeSelect.onChange(refresh);
 streamSelect.onChange(refresh);
+regionSelect.onChange(refresh);
 // Debounced: dragging or scrolling the date through many days now recomputes only
 // once, after you stop, instead of once per day passed over.
 dateSlider.onChange(ui.util.debounce(refresh, 450));
@@ -1480,7 +1671,11 @@ DAILY.aggregate_max('date_utc').evaluate(function (rawLast) {
   // reading, not a fixed calendar date — a boundary day can itself be cloudy, and a
   // first-time visitor landing on "No reading for this day" reasonably assumes the app
   // is broken rather than just unlucky.
+  // Pinned to region_id 'whole_lake' -- SPACE-003 now publishes 5 rows per date (one
+  // per region) instead of 1, and only date_utc is read from this row, but pinning the
+  // region keeps which row wins the sort/limit(1) tie-break deterministic.
   DAILY.filter(ee.Filter.eq('stream_id', 'terra_day'))
+    .filter(ee.Filter.eq('region_id', 'whole_lake'))
     .filter(ee.Filter.lte('date_utc', LAST_EXPORT_DATE))
     .sort('date_utc', false)
     .limit(1)

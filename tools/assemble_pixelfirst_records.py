@@ -2,6 +2,10 @@
 anomalies (+/-5 days, Feb-29 fold, same as METH-001/003) and ranks each 2023-onward
 headline anomaly (step 2) against that pool with the engine's own Type-7 percentile
 and label rule. No Earth Engine, no network.
+
+SPACE-003: pooling and ranking are done separately per region (whole lake + basins
+I-IV) -- a basin's own historical distribution, not the whole lake's, is what a basin
+reading should be ranked against.
 """
 from __future__ import annotations
 import datetime as dt
@@ -29,23 +33,26 @@ def doy_of(date_str: str) -> int:
 def main() -> int:
     hist = json.loads(HIST.read_text(encoding="utf-8"))["rows"]
     daily = json.loads(DAILY.read_text(encoding="utf-8"))
-    eligible_by_stream = daily["eligible_pixels_sum"]  # per-stream dict (engine's own _eligible_counts)
+    eligible_by_stream = daily["eligible_pixels_sum"]  # whole-lake only (engine's own _eligible_counts)
+    eligible_by_region = daily.get("eligible_pixels_by_region", {})  # SPACE-003: {region_id: {stream_id: n}}
 
-    pools: dict[tuple[str, int], list[float]] = {}
+    pools: dict[tuple[str, str, int], list[float]] = {}
     for r in hist:
         d = doy_of(r["date_utc"])
-        pools.setdefault((r["stream_id"], d), []).append(r["anomaly_pixel_first_c"])
+        region_id = r.get("region_id", "whole_lake")
+        pools.setdefault((r["stream_id"], region_id, d), []).append(r["anomaly_pixel_first_c"])
 
-    def pooled_sample(stream_id: str, doy: int) -> list[float]:
+    def pooled_sample(stream_id: str, region_id: str, doy: int) -> list[float]:
         vals: list[float] = []
         for d in window_offsets(doy):
-            vals.extend(pools.get((stream_id, d), []))
+            vals.extend(pools.get((stream_id, region_id, d), []))
         return sorted(vals)
 
     out_rows = []
     for r in daily["rows"]:
+        region_id = r.get("region_id", "whole_lake")
         doy = doy_of(r["date_utc"])
-        sample = pooled_sample(r["stream_id"], doy)
+        sample = pooled_sample(r["stream_id"], region_id, doy)
         anomaly = r["anomaly_pixel_first_c"]
         if len(sample) >= PERCENTILE_MIN_N:
             pct = type7_percentile_rank(sample, anomaly)
@@ -53,10 +60,13 @@ def main() -> int:
         else:
             pct = None
             pct_confidence = "insufficient_history"
-        eligible = eligible_by_stream.get(r["stream_id"], 0)
+        if region_id == "whole_lake":
+            eligible = eligible_by_stream.get(r["stream_id"], 0)
+        else:
+            eligible = eligible_by_region.get(region_id, {}).get(r["stream_id"], 0)
         fraction = (r.get("accepted_pixel_count") or 0) / eligible if eligible else 0.0
         out_rows.append({
-            "stream_id": r["stream_id"], "date_utc": r["date_utc"],
+            "stream_id": r["stream_id"], "region_id": region_id, "date_utc": r["date_utc"],
             "anomaly_vs_median_c": round(anomaly, 4),
             "historical_percentile": round(pct, 2) if pct is not None else None,
             "percentile_confidence": pct_confidence,
@@ -67,7 +77,9 @@ def main() -> int:
             "accepted_pixel_count": r.get("accepted_pixel_count"),
             "daily_lst_c": r.get("daily_lst_c"),
         })
-    OUT.write_text(json.dumps({"eligible_pixels_sum": eligible_by_stream, "rows": out_rows}, indent=1), encoding="utf-8")
+    OUT.write_text(json.dumps({
+        "eligible_pixels_sum": eligible_by_stream, "eligible_pixels_by_region": eligible_by_region,
+        "rows": out_rows}, indent=1), encoding="utf-8")
     print(json.dumps({"written": str(OUT), "rows": len(out_rows)}))
     return 0
 

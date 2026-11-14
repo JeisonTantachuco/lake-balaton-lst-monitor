@@ -21,18 +21,19 @@ OUT = STATE / "monthly_summaries_pixelfirst.json"
 
 def main() -> int:
     records = json.loads(DAILY.read_text(encoding="utf-8"))["rows"]
-    groups: dict[tuple[str, str], list[dict]] = {}
+    groups: dict[tuple[str, str, str], list[dict]] = {}
     for r in records:
-        groups.setdefault((r["stream_id"], r["date_utc"][:7]), []).append(r)
+        region_id = r.get("region_id", "whole_lake")
+        groups.setdefault((r["stream_id"], region_id, r["date_utc"][:7]), []).append(r)
     rows = []
-    for (stream_id, month_key), recs in sorted(groups.items()):
+    for (stream_id, region_id, month_key), recs in sorted(groups.items()):
         year, month = int(month_key[:4]), int(month_key[5:7])
         calendar_days = (dt.date(year + (month == 12), (month % 12) + 1, 1)
                          - dt.date(year, month, 1)).days
         qualifying = [r for r in recs if r["confidence"] in ("ok", "low") and r["daily_lst_c"] is not None]
         low_days = [r for r in qualifying if r["confidence"] == "low"]
         row = {
-            "stream_id": stream_id, "month": month_key,
+            "stream_id": stream_id, "region_id": region_id, "month": month_key,
             "calendar_day_count": calendar_days,
             "valid_day_count": len(qualifying),
             "low_coverage_day_count": len(low_days),
