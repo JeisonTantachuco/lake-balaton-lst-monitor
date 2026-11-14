@@ -277,6 +277,14 @@ def main():
 
     if not new_rows:
         print(json.dumps({"NOTHING_NEW": True}))
+        # The app's viewers are anonymous, so these two assets must stay publicly
+        # readable. Re-asserting this here too (not just after a real export) means a
+        # previous run that wrote new data but then failed to restore the public-read
+        # ACL (an overwritten asset does not inherit the old one's ACL) gets repaired
+        # on the very next run, rather than silently staying broken until new data
+        # happens to arrive.
+        for asset_id in (root + "daily_anomaly_records", root + "monthly_summaries"):
+            ee.data.setAssetAcl(asset_id, {"all_users_can_read": True})
         maybe_disable_if_stagnant(max(last_by_stream.values()), through)
         return 0
 
